@@ -2,7 +2,8 @@ import streamlit as st
 import google.generativeai as genai
 
 # 1. 제미나이 AI 설정 (발급받은 키 입력)
-GOOGLE_API_KEY = "AIzaSyBvAa2NXTVciXyct5SOltBtCdo09vv0krU"
+GOOGLE_API_KEY = # GitHub의 app.py 상단에 이 줄이 있어야 함
+GOOGLE_API_KEY = st.secrets["GEMINI_API_KEY"]
 genai.configure(api_key=GOOGLE_API_KEY)
 model = genai.GenerativeModel('gemini-1.5-flash') # 최신 무료 모델 사용
 
