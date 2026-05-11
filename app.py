@@ -1,36 +1,24 @@
 import streamlit as st
 import google.generativeai as genai
 
-# 금고에서 키 가져오기
-try:
-    if "GEMINI_API_KEY" in st.secrets:
-        api_key = st.secrets["GEMINI_API_KEY"]
-        genai.configure(api_key=api_key)
-    else:
-        st.error("Secrets에 GEMINI_API_KEY가 설정되지 않았습니다.")
-except Exception as e:
-    st.error(f"설정 불러오기 실패: {e}")
+# 1. 키 설정 (금고 확인)
+if "GEMINI_API_KEY" in st.secrets:
+    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+else:
+    st.error("금고(Secrets)에 키가 없습니다!")
 
-st.title("🎓 캠퍼스 메이트 (최종 점검)")
+# 2. 모델 강제 지정 (가장 호환성 높은 이름)
+model = genai.GenerativeModel('gemini-1.5-flash')
 
-# 에러 해결을 위한 모델 강제 지정
-# 1.5-flash가 안되면 1.0-pro라도 작동하게 시도합니다.
-def get_response(prompt_text):
-    for model_name in ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro']:
-        try:
-            model = genai.GenerativeModel(model_name)
-            return model.generate_content(prompt_text)
-        except Exception:
-            continue
-    return None
+st.title("🎓 캠퍼스 메이트 테스트")
 
-user_input = st.text_input("질문을 입력하세요")
-
-if st.button("AI 질문하기"):
-    if user_input:
-        with st.spinner("AI가 응답을 생성 중입니다..."):
-            response = get_response(user_input)
-            if response:
-                st.markdown(response.text)
-            else:
-                st.error("모든 AI 모델 연결에 실패했습니다. API 키의 활성화 상태를 다시 확인해주세요.")
+# 3. 아주 짧은 테스트 질문
+if st.button("AI 연결 확인"):
+    try:
+        # 질문을 아주 짧게 보내서 응답이 오는지 확인
+        response = model.generate_content("Hi")
+        st.success("드디어 연결되었습니다!")
+        st.write(response.text)
+    except Exception as e:
+        # 에러가 나면 숨기지 말고 다 보여달라고 설정
+        st.error(f"연결 실패 이유: {e}")
