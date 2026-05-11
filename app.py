@@ -1,35 +1,30 @@
 import streamlit as st
 import google.generativeai as genai
-from google.generativeai.types import RequestOptions
 
-# 1. API 키 설정
+# 1. API 키 설정 (금고 확인)
 if "GEMINI_API_KEY" in st.secrets:
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 else:
-    st.error("Secrets에 키가 없습니다.")
+    st.error("Secrets 설정에 GEMINI_API_KEY가 없습니다.")
     st.stop()
 
-st.title("🎓 캠퍼스 메이트 (최종 해결)")
+st.title("🎓 캠퍼스 메이트 AI")
 
-# 2. 모델 설정 및 통로(API 버전) 강제 지정
-# 핵심: 'v1' 정식 버전을 사용하도록 강제 설정합니다.
+# 2. 모델 설정 (가장 표준적인 이름만 사용)
 model = genai.GenerativeModel('gemini-1.5-flash')
 
-user_input = st.text_input("질문을 입력하세요:")
+user_input = st.text_input("AI에게 궁금한 점을 물어보세요!")
 
-if st.button("AI 질문하기"):
+if st.button("질문하기"):
     if user_input:
         with st.spinner("AI가 응답을 생성 중입니다..."):
             try:
-                # request_options를 통해 v1beta가 아닌 정식 버전을 사용하도록 유도
-                response = model.generate_content(
-                    user_input,
-                    request_options=RequestOptions(api_version='v1')
-                )
-                st.success("연결 성공!")
+                # 옵션 없이 가장 기본적으로 호출
+                response = model.generate_content(user_input)
+                st.success("답변이 생성되었습니다!")
                 st.markdown(response.text)
             except Exception as e:
                 st.error(f"에러 발생: {e}")
-                st.info("이 에러가 계속된다면, 구글 AI Studio에서 '새 프로젝트'로 키를 다시 발급받는 것이 유일한 해결책입니다.")
+                st.info("여전히 404 에러가 난다면, API 키를 다른 구글 계정으로 발급받아 보시는 것을 권장합니다.")
     else:
         st.warning("내용을 입력해주세요.")
