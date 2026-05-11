@@ -4,7 +4,7 @@ import google.generativeai as genai
 # 1. 제미나이 AI 설정 (발급받은 키 입력)
 GOOGLE_API_KEY = st.secrets["GEMINI_API_KEY"]
 genai.configure(api_key=GOOGLE_API_KEY)
-model = genai.GenerativeModel('gemini-1.5-flash') # 최신 무료 모델 사용
+model = genai.GenerativeModel('gemini-1.5-flash-latest')
 
 # 페이지 설정
 st.set_page_config(page_title="캠퍼스 메이트", layout="wide")
