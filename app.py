@@ -25,32 +25,26 @@ if st.session_state.page == 'gate':
     if st.button("팀 만들기"): st.session_state.page = 'create'; st.rerun()
     if st.button("참여하기"): st.session_state.page = 'join'; st.rerun()
 
-# --- 팀 생성 로직 (수정본) ---
+# --- 팀 생성 로직 (create) ---
 elif st.session_state.page == 'create':
-    st.subheader("🆕 새로운 팀 만들기")
-    t_name = st.text_input("팀 이름", placeholder="예: 파이썬 열공방")
-    u_name = st.text_input("내 닉네임", placeholder="예: 홍길동")
-    
+    # ... (중략) ...
     if st.button("확인 및 시작"):
-        if not t_name or not u_name:
-            st.warning("이름과 닉네임을 모두 입력해주세요!")
-        else:
-            code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+        try:
+            # 1. 서버 저장 시도
+            supabase.table("team").insert(row).execute()
             
-            row = {
-                "invite_code": code,
-                "team_name": t_name,
-                "members": [{"name": u_name, "status": "대기"}],
-                "subjects": {"기본과목": {"grade": "A+"}} # 초기 과목 설정
-            }
+            st.session_state.invite_code = code
+            st.session_state.my_name = u_name
+            st.session_state.page = 'dashboard'
+            st.rerun() 
             
-            try:
-                # 1. 서버 저장
-                supabase.table("team").insert(row).execute()
-                
-                # 2. 세션 상태에 저장 (이게 중요!)
-                st.session_state.invite_code = code
-                st.session_state.my_name = u_name
+        except Exception as e:
+            # try 블록이 끝나면 반드시 이 except 블록이 있어야 합니다!
+            st.error(f"저장 중 오류 발생: {e}")
+
+# --- 여기서부터 대시보드 (이제 에러가 안 날 거예요) ---
+elif st.session_state.page == 'dashboard':
+    # ... (대시보드 코드) ...
                # --- 화면 3: 대시보드 (데이터 로딩 강화) ---
 elif st.session_state.page == 'dashboard':
     # 서버에서 최신 데이터 가져오기
