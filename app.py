@@ -5,50 +5,55 @@ import random
 import string
 from streamlit_autorefresh import st_autorefresh
 
-# --- 1. 서비스 연결 초기화 ---
+# --- 1. 서비스 연결 초기화 (에러 진단 모드) ---
 def init_connection():
     try:
-        # 1. Secrets 로드 확인
-        if "SUPABASE_URL" not in st.secrets:
-            st.error("Secrets 설정에서 SUPABASE_URL을 찾을 수 없습니다.")
-            st.stop()
-            
+        # Secrets 로드
         s_url = st.secrets["SUPABASE_URL"]
         s_key = st.secrets["SUPABASE_KEY"]
         g_key = st.secrets["GEMINI_API_KEY"]
         
-        # 2. Supabase 연결
+        # Supabase 연결
         s = create_client(s_url, s_key)
         
-        # 3. Gemini API 설정
+        # Gemini API 설정
         genai.configure(api_key=g_key)
         
-        # 4. 모델 호출 (가장 최신 표준 명칭 사용)
-        # 404 에러를 방지하기 위해 'models/' 접두사를 제거한 이름부터 시도합니다.
+        # [해결 핵심] 모델 목록을 직접 조회하여 사용 가능한 첫 번째 모델을 잡습니다.
         m = None
-        test_models = ['gemini-1.5-flash', 'gemini-1.5-pro']
-        
-        for model_id in test_models:
+        try:
+            # 사용 가능한 모델 목록 중 generateContent가 가능한 모델 찾기
+            available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+            
+            # 우선순위: 1.5-flash -> 1.5-pro -> 목록의 첫 번째
+            target_model = ""
+            if "models/gemini-1.5-flash" in available_models:
+                target_model = "models/gemini-1.5-flash"
+            elif "models/gemini-1.0-pro" in available_models:
+                target_model = "models/gemini-1.0-pro"
+            elif available_models:
+                target_model = available_models[0]
+                
+            if target_model:
+                m = genai.GenerativeModel(target_model)
+                # 연결 테스트
+                m.generate_content("hi", generation_config={"max_output_tokens": 1})
+        except Exception as inner_e:
+            st.error(f"모델 목록 조회 중 에러: {inner_e}")
+            # 리스트 조회가 실패할 경우를 대비한 수동 시도
             try:
-                temp_model = genai.GenerativeModel(model_id)
-                # 실제로 작동하는지 최소 토큰으로 테스트
-                temp_model.generate_content("ping", generation_config={"max_output_tokens": 1})
-                m = temp_model
-                break
-            except Exception as e:
-                continue
+                m = genai.GenerativeModel('gemini-1.5-flash')
+                m.generate_content("hi", generation_config={"max_output_tokens": 1})
+            except:
+                m = None
         
         return s, m
     except Exception as e:
-        st.error(f"⚠️ 시스템 초기화 중 오류 발생: {e}")
+        st.error(f"⚠️ 시스템 초기화 중 치명적 오류: {e}")
         return None, None
 
 # 연결 실행
 supabase, model = init_connection()
-
-# 연결 실패 시 안내 메시지 (상담 버튼 클릭 전 미리 경고)
-if model is None:
-    st.warning("⚠️ 현재 AI 모델과 연결되지 않았습니다. API 키가 정확한지, 혹은 구글 AI 스튜디오에서 키가 활성 상태(Active)인지 확인해 주세요.")
 
 # --- 2. 세션 상태 관리 ---
 if 'page' not in st.session_state:
@@ -75,6 +80,12 @@ def update_db_status(code, name, status):
         supabase.table("team").update({"members": m_list}).eq("invite_code", code).execute()
 
 # --- 3. 화면 UI 로직 ---
+
+# 상단 연결 상태 표시 (디버깅용)
+if model is None:
+    st.error("🚨 AI 모델 연결 실패. API 키 권한이나 라이브러리 버전을 확인하세요.")
+else:
+    st.sidebar.success("✅ AI 모델 연결 완료")
 
 # [게이트웨이]
 if st.session_state.page == 'gate':
@@ -143,26 +154,25 @@ elif st.session_state.page == 'dashboard':
         st.divider()
         # AI 상담소
         st.subheader("💡 AI 진로 상담소")
-        career_q = st.text_area("고민 내용을 적어주세요 (예: 비전공자 개발자 취업 고민)")
+        career_q = st.text_area("고민 내용을 적어주세요")
         
         if st.button("🔮 상담 시작", use_container_width=True):
             if career_q:
                 if model:
                     with st.spinner("AI 상담사가 분석 중입니다..."):
                         try:
-                            # 1.5-flash 모델로 상담 실행
                             resp = model.generate_content(f"커리어 전문가로서 조언해줘: {career_q}")
                             st.session_state.career_result = resp.text
                             st.rerun()
                         except Exception as e:
-                            st.error(f"상담 중 오류가 발생했습니다: {e}")
+                            st.error(f"상담 실행 중 에러: {e}")
                 else:
-                    st.error("AI 모델이 연결되지 않아 상담을 진행할 수 없습니다. 상단의 경고 메시지를 확인하세요.")
+                    st.error("AI 연결이 되어 있지 않습니다.")
             else:
                 st.warning("고민 내용을 입력해 주세요.")
 
         if st.session_state.career_result:
-            st.success("🤖 AI 상담사 결과")
+            st.success("🤖 AI 상담 결과")
             st.markdown(st.session_state.career_result)
             if st.button("결과 닫기"):
                 st.session_state.career_result = None; st.rerun()
