@@ -8,7 +8,7 @@ from streamlit_autorefresh import st_autorefresh
 # --- 1. 설정 (본인의 키로 교체하세요) ---
 SUPABASE_URL = "https://bpyxibaquftjjzvsoord.supabase.co" 
 SUPABASE_KEY = "sb_publishable_rNyeIYS4lrfQ9eRhEgCVqw_ATzUoPCS"
-GEMINI_API_KEY = "AIzaSyBIqXd2kYdsPfPER7BJXEreSMQaBX49Oyo"
+GEMINI_API_KEY = "AIzaSyAvwGS0XZ9zGkRnbAmvUFmD6tgff0nCrFs"
 
 @st.cache_resource
 def init_connection():
