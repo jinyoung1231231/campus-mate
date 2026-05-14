@@ -1,13 +1,13 @@
 import streamlit as st
 from supabase import create_client, Client
-import google.generativeai as genai
+import requests  # 구글 라이브러리 대신 표준 통신 라이브러리 사용
 import random
 import string
 from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
 from PyPDF2 import PdfReader
 
-# --- 1. DB 연결 (AI 캐싱 완전 제거) ---
+# --- 1. DB 연결 ---
 @st.cache_resource
 def init_db():
     return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
@@ -19,7 +19,7 @@ for key in ['page', 'my_name', 'invite_code', 'ai_ans', 'file_content']:
     if key not in st.session_state:
         st.session_state[key] = "gate" if key == 'page' else ""
 
-# --- 3. 유틸리티 및 핵심 AI 로직 (ListModels 적용) ---
+# --- 3. [핵심] 라이브러리 충돌 원천 차단! (Direct API 통신) ---
 def extract_text(uploaded_file):
     try:
         if uploaded_file.type == "application/pdf":
@@ -39,40 +39,36 @@ def run_ai(prompt_type, **kwargs):
             elif prompt_type == "consult":
                 p = f"상담 답변해줘: {kwargs['q']}"
             
-            # 2. API 키 등록
-            genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+            api_key = st.secrets["GEMINI_API_KEY"]
+            headers = {'Content-Type': 'application/json'}
+            data = {"contents": [{"parts": [{"text": p}]}]}
             
-            # 3. [핵심] 서버에 현재 사용 가능한 모델 리스트를 직접 물어봄 (404 완벽 차단)
-            available_models = []
-            for m in genai.list_models():
-                if 'generateContent' in m.supported_generation_methods:
-                    available_models.append(m.name)
+            # [해결] 구글 라이브러리 버그를 피하기 위해, 서버에 직접 요청(HTTP POST)을 꽂아버립니다.
+            url_flash = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+            res = requests.post(url_flash, headers=headers, json=data)
             
-            if not available_models:
-                st.error("❌ 현재 API 키로 사용할 수 있는 텍스트 모델이 없습니다.")
-                return
-            
-            # 우선순위: 1.5-flash -> pro -> 리스트의 첫 번째 모델
-            target_model = available_models[0]
-            for m_name in available_models:
-                if '1.5-flash' in m_name:
-                    target_model = m_name
-                    break
-                elif 'pro' in m_name and 'vision' not in m_name:
-                    target_model = m_name
-            
-            # 4. 서버가 알려준 정확한 이름으로 모델 실행
-            m = genai.GenerativeModel(target_model)
-            res = m.generate_content(p)
-            st.session_state.ai_ans = res.text
-            st.rerun() # 성공 시 새로고침
+            if res.status_code == 200:
+                result = res.json()
+                st.session_state.ai_ans = result['candidates'][0]['content']['parts'][0]['text']
+                st.rerun()
+            else:
+                # 1.5-flash가 막혀있다면, 가장 기본형인 gemini-pro로 2차 다이렉트 통신 시도
+                url_pro = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={api_key}"
+                res_pro = requests.post(url_pro, headers=headers, json=data)
+                
+                if res_pro.status_code == 200:
+                    result = res_pro.json()
+                    st.session_state.ai_ans = result['candidates'][0]['content']['parts'][0]['text']
+                    st.rerun()
+                else:
+                    st.error(f"❌ 구글 API 키 오류 (Secrets를 확인해주세요): {res_pro.text}")
                 
         except Exception as e:
-            st.error(f"❌ AI 오류: {e}")
+            st.error(f"❌ 시스템 통신 오류: {e}")
 
 # --- 4. 화면 구성 ---
 
-# [게이트 페이지: 로그인 및 다중 팀]
+# [게이트 페이지]
 if st.session_state.page == 'gate':
     st.title("🔥 Check-Mate")
     st.markdown("#### 닉네임을 입력해 내 팀을 확인하거나 새로 만드세요.")
@@ -80,7 +76,6 @@ if st.session_state.page == 'gate':
     un = st.text_input("사용자 닉네임 (로그인)")
     
     if un:
-        # 내 소속 팀 찾기
         try:
             all_teams = supabase.table("team").select("*").execute().data
             my_teams = [t for t in all_teams if any(m['name'] == un for m in t['members'])]
@@ -167,7 +162,7 @@ elif st.session_state.page == 'dashboard':
                     days = c_d.number_input("남은 기간", 1, 100, 7)
                     grade = c_g.selectbox("목표 성적", ["A+", "B+", "Pass"])
                     
-                    if st.button("🪄 AI 일정 생성 (서버 자동탐색)"):
+                    if st.button("🪄 AI 일정 생성 (다이렉트)"):
                         if st.session_state.file_content:
                             ml = data['members']
                             for m in ml:
