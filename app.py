@@ -33,18 +33,17 @@ def run_ai(prompt_type, **kwargs):
         try:
             today_str = datetime.now().strftime("%Y년 %m월 %d일")
             
-            # [수정] 표(달력) 형태가 아닌 텍스트/줄글 형태로 자연스럽게 작성하도록 변경
             if prompt_type == "plan":
                 p = f"""오늘 날짜는 {today_str}입니다. 
 목표 성적: {kwargs['grade']}, 남은 기간: {kwargs['days']}일.
 아래 제공된 학습 자료를 바탕으로, {kwargs['days']}일치 학습 일정을 '줄글(텍스트)' 형태로 보기 좋게 작성해주세요. 
 달력이나 표(Table)를 그리지 말고, 1일차, 2일차 등 일차별로 어떤 내용을 공부해야 하는지 텍스트로 자세히 설명해주세요.
 
-[학습 자료]
-{st.session_state.file_content[:3500]}"""
+[학습 자료 (직접 입력 및 파일 내용 통합)]
+{st.session_state.file_content[:4000]}"""
 
             elif prompt_type == "quiz":
-                p = f"아래 자료에서 핵심 퀴즈 3개와 정답 내줘:\n{st.session_state.file_content[:3500]}"
+                p = f"아래 자료에서 핵심 퀴즈 3개와 정답 내줘:\n{st.session_state.file_content[:4000]}"
             elif prompt_type == "consult":
                 p = f"상담 답변해줘: {kwargs['q']}"
             
@@ -167,28 +166,26 @@ elif st.session_state.page == 'dashboard':
                     sel_sub = st.selectbox("현재 공부할 과목", [s['name'] for s in my_subs])
                     
                     st.write("---")
-                    input_method = st.radio("🔽 자료 입력 방식을 선택하세요", ["📝 텍스트 직접 쓰기/붙여넣기", "📁 파일 업로드 (PDF/TXT)"], horizontal=True)
+                    st.write("🔽 **학습 자료 입력 (텍스트 입력과 파일 업로드를 동시에 할 수 있습니다!)**")
                     
-                    if input_method == "📝 텍스트 직접 쓰기/붙여넣기":
-                        manual_text = st.text_area("학습할 내용을 여기에 직접 입력하거나 붙여넣으세요.", height=150)
-                        if manual_text:
-                            st.session_state.file_content = manual_text
-                            st.success(f"✅ 텍스트 입력 완료! (총 {len(manual_text)}자)")
-                        else:
-                            st.session_state.file_content = ""
-                            
-                    elif input_method == "📁 파일 업로드 (PDF/TXT)":
-                        up_file = st.file_uploader("교안 파일 업로드", type=['pdf', 'txt'])
-                        if up_file: 
-                            extracted = extract_text(up_file)
-                            if len(extracted) > 0:
-                                st.session_state.file_content = extracted
-                                st.success(f"✅ 파일 텍스트 인식 완료! (총 {len(extracted)}자)")
-                            else:
-                                st.session_state.file_content = ""
-                                st.error("🚨 스캔본(이미지) PDF라 글자를 읽을 수 없습니다. '텍스트 직접 쓰기' 방식을 선택해주세요.")
-                        else:
-                            st.session_state.file_content = ""
+                    # [수정] 텍스트 입력창과 파일 업로드창 동시 배치
+                    manual_text = st.text_area("📝 추가할 텍스트나 지시사항이 있다면 자유롭게 적어주세요.", height=100)
+                    up_file = st.file_uploader("📁 교안 파일 업로드 (PDF/TXT)", type=['pdf', 'txt'])
+                    
+                    extracted = ""
+                    if up_file: 
+                        extracted = extract_text(up_file)
+                        if len(extracted) == 0:
+                            st.error("🚨 스캔본(이미지) PDF라 글자를 읽을 수 없습니다. 위 텍스트 창에 내용을 복사해주세요.")
+                    
+                    # 텍스트 내용과 파일 내용을 하나로 합침
+                    combined_content = f"{manual_text}\n{extracted}".strip()
+                    
+                    if combined_content:
+                        st.session_state.file_content = combined_content
+                        st.success(f"✅ 자료 통합 인식 완료! (직접입력: {len(manual_text)}자 / 파일: {len(extracted)}자)")
+                    else:
+                        st.session_state.file_content = ""
                     
                     st.write("---")
                     c_d, c_g = st.columns(2)
@@ -203,11 +200,10 @@ elif st.session_state.page == 'dashboard':
                             supabase.table("team").update({"members": ml}).eq("invite_code", st.session_state.invite_code).execute()
                             run_ai("plan", grade=grade, days=days)
                         else: 
-                            st.warning("⚠️ 자료를 먼저 입력해주세요! (내용이 비어있습니다)")
+                            st.warning("⚠️ 자료를 먼저 입력해주세요! (텍스트 입력이나 파일 업로드)")
 
                     st.divider()
                     
-                    # [추가] 오늘 며칠 차인지 선택하는 기능
                     st.write("🏃‍♂️ **학습 진행**")
                     current_day = st.selectbox("🎯 오늘 진행할 일차 선택", [f"Day {i}" for i in range(1, days + 1)])
                     
@@ -216,7 +212,6 @@ elif st.session_state.page == 'dashboard':
                         if st.button("🚀 공부 시작", use_container_width=True):
                             ml = data['members']
                             for m in ml:
-                                # [수정] 상태 업데이트 시 N일차(Day X) 정보를 함께 저장
                                 if m['name'] == st.session_state.my_name: m['status'] = f"🔥 {sel_sub} ({current_day}) 중"
                             supabase.table("team").update({"members": ml}).eq("invite_code", st.session_state.invite_code).execute()
                             st.rerun()
