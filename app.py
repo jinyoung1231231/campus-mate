@@ -4,104 +4,166 @@ import google.generativeai as genai
 import random
 import string
 
-# 1. 연결 설정 (슬래시 / 주의!!)
-URL = "https://bpyxibaquftjjzvsoord.supabase.co" # 주소 끝에 아무것도 붙이지 마세요
-KEY = "sb_publishable_rNyeIYS4lrfQ9eRhEgCVqw_ATzUoPCS"
-GEMINI = "AIzaSyBIqXd2kYdsPfPER7BJXEreSMQaBX49Oyo"
+# --- 1. 설정 (본인의 키를 입력하세요) ---
+SUPABASE_URL = "https://bpyxibaquftjjzvsoord.supabase.co" # 끝에 / 없이
+SUPABASE_KEY = "sb_publishable_rNyeIYS4lrfQ9eRhEgCVqw_ATzUoPCS"
+GEMINI_API_KEY = "AIzaSyBIqXd2kYdsPfPER7BJXEreSMQaBX49Oyo"
 
-# 서버 연결 (예외처리 추가)
-try:
-    supabase: Client = create_client(URL, KEY)
-    genai.configure(api_key=GEMINI)
+# 서비스 연결
+@st.cache_resource
+def init_connection():
+    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    genai.configure(api_key=GEMINI_API_KEY)
     model = genai.GenerativeModel('gemini-1.5-flash')
+    return supabase, model
+
+try:
+    supabase, model = init_connection()
 except Exception as e:
-    st.error(f"연결 실패: {e}")
+    st.error(f"연결 오류: {e}")
 
-if 'page' not in st.session_state: st.session_state.page = 'gate'
+# --- 2. 상태 관리 함수 ---
+if 'page' not in st.session_state:
+    st.session_state.page = 'gate'
 
-# --- 게이트웨이 ---
+def update_db_status(new_status):
+    try:
+        res = supabase.table("team").select("members").eq("invite_code", st.session_state.invite_code).execute()
+        if res.data:
+            members = res.data[0]['members']
+            for m in members:
+                if m['name'] == st.session_state.my_name:
+                    m['status'] = new_status
+            supabase.table("team").update({"members": members}).eq("invite_code", st.session_state.invite_code).execute()
+    except Exception as e:
+        st.error(f"상태 업데이트 실패: {e}")
+
+# --- 3. 화면 로직 ---
+
+# [화면 0: 게이트웨이]
 if st.session_state.page == 'gate':
-    st.title("🔥 체크메이트")
-    if st.button("팀 만들기"): st.session_state.page = 'create'; st.rerun()
-    if st.button("참여하기"): st.session_state.page = 'join'; st.rerun()
-
-# --- 팀 생성 로직 (create) ---
-elif st.session_state.page == 'create':
-    # ... (중략) ...
-    if st.button("확인 및 시작"):
-        try:
-            # 1. 서버 저장 시도
-            supabase.table("team").insert(row).execute()
-            
-            st.session_state.invite_code = code
-            st.session_state.my_name = u_name
-            st.session_state.page = 'dashboard'
-            st.rerun() 
-            
-        except Exception as e:
-            # try 블록이 끝나면 반드시 이 except 블록이 있어야 합니다!
-            st.error(f"저장 중 오류 발생: {e}")
-
-# --- 여기서부터 대시보드 (이제 에러가 안 날 거예요) ---
-elif st.session_state.page == 'dashboard':
-    # ... (대시보드 코드) ...
-               # --- 화면 3: 대시보드 (데이터 로딩 강화) ---
-elif st.session_state.page == 'dashboard':
-    # 서버에서 최신 데이터 가져오기
-    res = supabase.table("team").select("*").eq("invite_code", st.session_state.invite_code).execute()
+    st.title("🔥 Check-Mate")
+    st.subheader("AI 실시간 멀티 스터디")
     
-    if not res.data:
-        st.error("데이터를 불러오지 못했습니다. 잠시 후 다시 시도하세요.")
-        if st.button("처음으로 돌아가기"):
-            st.session_state.page = 'gate'
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🆕 팀 만들기", use_container_width=True):
+            st.session_state.page = 'create'
             st.rerun()
-        st.stop()
+    with col2:
+        if st.button("🔗 참여하기", use_container_width=True):
+            st.session_state.page = 'join'
+            st.rerun()
 
-    data = res.data[0]
+# [화면 1: 팀 생성]
+elif st.session_state.page == 'create':
+    st.title("🆕 팀 생성하기")
+    t_name = st.text_input("팀 이름")
+    u_name = st.text_input("내 닉네임")
+    subjects_in = st.text_input("과목들 (쉼표로 구분)", "경제학, 수학")
     
-    # 만약 subjects가 비어있다면 기본값 설정
-    subjects = data.get('subjects') or {"기본": {"grade": "A+"}}
-    members = data.get('members') or []
-
-    st.title(f"🔥 {data.get('team_name', '우리 팀')}")
-    st.info(f"🎫 초대 코드: **{st.session_state.invite_code}** | 내 닉네임: **{st.session_state.my_name}**")
-
-    # 1. 팀원 현황 (실시간)
-    st.subheader("👥 팀원 상태")
-    cols = st.columns(len(members) if len(members) > 0 else 1)
-    for i, m in enumerate(members):
-        with cols[i % len(cols)]:
-            st.markdown(f"""
-                <div style="border: 2px solid #ddd; border-radius: 10px; padding: 10px; text-align: center;">
-                    <b>{m['name']}</b><br>{m['status']}
-                </div>
-            """, unsafe_allow_html=True)
-
-    st.divider()
-
-    # 2. 과목별 공부 & AI 퀴즈
-    if subjects:
-        tabs = st.tabs(list(subjects.keys()))
-        for i, tab in enumerate(tabs):
-            s_name = list(subjects.keys())[i]
-            with tab:
-                st.subheader(f"📚 {s_name}")
-                up_file = st.file_uploader(f"{s_name} 자료 업로드", key=f"file_{s_name}")
+    if st.button("생성 완료"):
+        if t_name and u_name:
+            code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+            sub_list = [s.strip() for s in subjects_in.split(",") if s.strip()]
+            sub_dict = {s: {"files": []} for s in sub_list}
+            
+            try:
+                supabase.table("team").insert({
+                    "invite_code": code,
+                    "team_name": t_name,
+                    "members": [{"name": u_name, "status": "✅ 대기"}],
+                    "subjects": sub_dict
+                }).execute()
                 
-                c1, c2 = st.columns(2)
-                with c1:
-                    if st.button(f"🚀 {s_name} 공부 시작", key=f"start_{s_name}"):
-                        # 상태 업데이트 함수 호출 (기존 함수 그대로 사용)
-                        update_db_status(f"🔥 {s_name} 공부중")
-                        st.rerun()
-                with c2:
-                    if st.button(f"🏁 종료 및 퀴즈", key=f"end_{s_name}"):
-                        update_db_status("✅ 완료")
-                        if up_file:
-                            st.success("AI 퀴즈 생성 중... (Gemini 호출)")
-                            # Gemini 코드 부분...
-                        else:
-                            st.warning("파일을 올려주세요!")
+                st.session_state.update({
+                    "invite_code": code,
+                    "my_name": u_name,
+                    "page": "dashboard"
+                })
+                st.rerun()
+            except Exception as e:
+                st.error(f"DB 저장 실패: {e}")
+        else:
+            st.warning("모든 정보를 입력해주세요.")
 
-    if st.button("🔄 화면 새로고침"):
-        st.rerun()
+# [화면 2: 참여하기]
+elif st.session_state.page == 'join':
+    st.title("🔗 팀 참여하기")
+    code_in = st.text_input("초대 코드 6자리").upper()
+    u_name = st.text_input("내 닉네임")
+    
+    if st.button("입장"):
+        try:
+            res = supabase.table("team").select("*").eq("invite_code", code_in).execute()
+            if res.data:
+                team_data = res.data[0]
+                members = team_data['members']
+                if not any(m['name'] == u_name for m in members):
+                    members.append({"name": u_name, "status": "✅ 대기"})
+                    supabase.table("team").update({"members": members}).eq("invite_code", code_in).execute()
+                
+                st.session_state.update({
+                    "invite_code": code_in,
+                    "my_name": u_name,
+                    "page": "dashboard"
+                })
+                st.rerun()
+            else:
+                st.error("존재하지 않는 코드입니다.")
+        except Exception as e:
+            st.error(f"참여 실패: {e}")
+
+# [화면 3: 대시보드]
+elif st.session_state.page == 'dashboard':
+    try:
+        res = supabase.table("team").select("*").eq("invite_code", st.session_state.invite_code).execute()
+        if not res.data:
+            st.error("데이터를 찾을 수 없습니다.")
+            st.stop()
+        
+        data = res.data[0]
+        st.title(f"🏫 {data['team_name']}")
+        st.info(f"초대코드: {st.session_state.invite_code} | 사용자: {st.session_state.my_name}")
+
+        # 팀원 현황
+        st.subheader("👥 팀원 상태")
+        m_cols = st.columns(5)
+        for idx, m in enumerate(data['members']):
+            with m_cols[idx % 5]:
+                st.markdown(f"**{m['name']}**\n\n{m['status']}")
+
+        st.divider()
+
+        # 과목 탭
+        subjects = data['subjects']
+        if subjects:
+            tabs = st.tabs(list(subjects.keys()))
+            for i, tab in enumerate(tabs):
+                s_name = list(subjects.keys())[i]
+                with tab:
+                    up_file = st.file_uploader(f"{s_name} 자료", key=f"file_{s_name}")
+                    
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        if st.button(f"🚀 {s_name} 열공 시작", key=f"start_{s_name}"):
+                            update_db_status(f"🔥 {s_name} 공부중")
+                            st.rerun()
+                    with c2:
+                        if st.button(f"🏁 공부 종료 & 퀴즈", key=f"end_{s_name}"):
+                            update_db_status("✅ 완료")
+                            if up_file:
+                                with st.spinner("AI 퀴즈 생성 중..."):
+                                    # 파일 이름/내용 기반 퀴즈 생성 (간단화)
+                                    prompt = f"다음 과목에 대한 퀴즈 3개를 내줘: {s_name}. 자료이름: {up_file.name}"
+                                    response = model.generate_content(prompt)
+                                    st.write("🤖 AI 퀴즈:")
+                                    st.write(response.text)
+                            else:
+                                st.warning("파일이 없습니다.")
+        
+        if st.button("🔄 새로고침"):
+            st.rerun()
+
+    except Exception as e:
+        st.error(f"대시보드 로딩 오류: {e}")
