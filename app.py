@@ -7,7 +7,7 @@ from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
 from PyPDF2 import PdfReader
 
-# --- 1. DB 연결 ---
+# --- 1. DB 연결 (AI 캐싱 제거로 충돌 방지) ---
 @st.cache_resource
 def init_db():
     return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
@@ -19,7 +19,7 @@ for key in ['page', 'my_name', 'invite_code', 'ai_ans', 'file_content']:
     if key not in st.session_state:
         st.session_state[key] = "gate" if key == 'page' else ""
 
-# --- 3. [핵심] 죽은 모델 폐기! 무조건 최신형으로 직결 ---
+# --- 3. [핵심] 구글 서버에 직접 물어보는 AI 로직 ---
 def extract_text(uploaded_file):
     try:
         if uploaded_file.type == "application/pdf":
@@ -29,7 +29,7 @@ def extract_text(uploaded_file):
     except: return ""
 
 def run_ai(prompt_type, **kwargs):
-    with st.spinner("AI 분석 중... (제발 되어라🙏)"):
+    with st.spinner("AI 분석 중... (서버 자동 탐색)"):
         try:
             if prompt_type == "plan":
                 p = f"목표:{kwargs['grade']}, 기간:{kwargs['days']}일. 아래 자료 분석 후 일정 짜줘:\n{st.session_state.file_content[:3500]}"
@@ -38,23 +38,47 @@ def run_ai(prompt_type, **kwargs):
             elif prompt_type == "consult":
                 p = f"상담 답변해줘: {kwargs['q']}"
             
-            # API 키 등록
+            # API 키 설정
             genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
             
-            # [해결] 옛날 모델(pro) 다 버리고, 항상 최신 버전으로 업데이트되는 latest 명칭 사용
-            model = genai.GenerativeModel('gemini-1.5-flash-latest')
+            # 1. 구글 서버에 "이 키로 쓸 수 있는 모델 다 가져와!" 요청
+            valid_models = []
+            for m in genai.list_models():
+                # 글자를 생성할 수 있는(generateContent) 진짜 AI 모델만 필터링 (400 에러 방지)
+                if 'generateContent' in m.supported_generation_methods:
+                    valid_models.append(m.name)
             
-            res = model.generate_content(p)
+            if not valid_models:
+                st.error("❌ 이 API 키로는 텍스트 AI를 쓸 수 없습니다. 구글 AI Studio에서 새 키를 발급받으세요.")
+                return
+            
+            # 2. 리스트 중에서 가장 최신/똑똑한 제미나이 모델을 자동으로 픽업
+            target_model = None
+            for kw in ['1.5-flash', '1.5-pro', '1.0-pro', 'gemini-pro', 'gemini']:
+                for m_name in valid_models:
+                    if kw in m_name and 'vision' not in m_name:
+                        target_model = m_name
+                        break
+                if target_model: break
+                
+            # 제미나이 이름이 없다면 그냥 리스트의 첫 번째 모델 강제 사용
+            if not target_model:
+                target_model = valid_models[0]
+                
+            # 3. 찾아낸 모델명으로 안전하게 통신
+            m = genai.GenerativeModel(target_model)
+            res = m.generate_content(p)
             st.session_state.ai_ans = res.text
-            st.rerun() # 성공 시 바로 화면 갱신
+            st.rerun()
                 
         except Exception as e:
-            # 만약 여기서도 에러가 난다면, 코드가 아니라 구글 API 키 권한(Generative Language API 사용 설정) 문제입니다.
-            st.error(f"❌ 구글 클라우드 API 권한 오류: {e}")
+            st.error(f"❌ AI 오류: {e}")
+            # 에러가 또 나면, 도대체 무슨 모델을 쓸 수 있는지 화면에 박제해버립니다.
+            if 'valid_models' in locals():
+                st.warning(f"💡 현재 API 키로 사용 가능한 모델 리스트: {valid_models}")
 
 # --- 4. 화면 구성 ---
 
-# [게이트 페이지]
 if st.session_state.page == 'gate':
     st.title("🔥 Check-Mate")
     st.markdown("#### 닉네임을 입력해 내 팀을 확인하거나 새로 만드세요.")
@@ -106,7 +130,6 @@ if st.session_state.page == 'gate':
                     st.session_state.update({"invite_code": ci, "my_name": un, "page": "dashboard"})
                     st.rerun()
 
-# [대시보드 페이지]
 elif st.session_state.page == 'dashboard':
     if not st.session_state.invite_code: 
         st.session_state.page = 'gate'; st.rerun()
