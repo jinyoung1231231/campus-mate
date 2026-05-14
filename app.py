@@ -17,17 +17,28 @@ def init_connection():
     
     # Gemini 설정
     genai.configure(api_key=GEMINI_API_KEY)
-    # 모델 경로를 'models/'를 붙여 정확히 지정 (NotFound 에러 해결용)
-    m = genai.GenerativeModel('models/gemini-1.5-flash')
     
+    # [중요] NotFound 에러 방지를 위한 모델 로딩 로직
+    # 우선 가장 최신인 gemini-1.5-flash를 시도합니다.
+    try:
+        m = genai.GenerativeModel('models/gemini-1.5-flash')
+        # 모델이 정상인지 테스트 호출 (비용 안 드는 아주 짧은 텍스트)
+        m.generate_content("ping") 
+    except Exception:
+        # 위 모델이 없다고 나오면(NotFound), 대안 모델 시도
+        try:
+            m = genai.GenerativeModel('gemini-1.5-flash')
+        except:
+            m = genai.GenerativeModel('models/gemini-1.0-pro')
+            
     return s, m
 
 try:
     supabase, model = init_connection()
 except Exception as e:
-    st.error(f"연결 오류: {e}")
+    st.error(f"연결 오류 발생: {e}")
 
-# --- 2. 상태 관리 로직 ---
+# --- 2. 세션 및 상태 관리 ---
 if 'page' not in st.session_state:
     st.session_state.page = 'gate'
 if 'my_teams' not in st.session_state:
@@ -77,9 +88,9 @@ if st.session_state.page == 'gate':
     
     c1, c2 = st.columns(2)
     with c1:
-        if st.button("🆕 팀 생성"): st.session_state.page = 'create'; st.rerun()
+        if st.button("🆕 팀 생성", use_container_width=True): st.session_state.page = 'create'; st.rerun()
     with c2:
-        if st.button("🔗 팀 참여"): st.session_state.page = 'join'; st.rerun()
+        if st.button("🔗 팀 참여", use_container_width=True): st.session_state.page = 'join'; st.rerun()
 
 # [팀 생성]
 elif st.session_state.page == 'create':
@@ -120,6 +131,7 @@ elif st.session_state.page == 'join':
 elif st.session_state.page == 'dashboard':
     st_autorefresh(interval=5000, key="f5")
     data = get_team_data(st.session_state.invite_code)
+    
     if data:
         st.title(f"🏫 {data['team_name']}")
         st.sidebar.button("⬅️ 목록으로", on_click=lambda: st.session_state.update({"page": "gate"}))
@@ -143,29 +155,44 @@ elif st.session_state.page == 'dashboard':
             if new_s and new_s not in my_subs:
                 my_subs.append(new_s); update_db_subjects(st.session_state.invite_code, my_name, my_subs); st.rerun()
         
-        tabs = st.tabs(my_subs)
-        for i, tab in enumerate(tabs):
-            s_name = my_subs[i]
-            with tab:
-                if st.button(f"❌ {s_name} 삭제", key=f"del_{s_name}"):
-                    my_subs.remove(s_name); update_db_subjects(st.session_state.invite_code, my_name, my_subs); st.rerun()
-                up_file = st.file_uploader(f"자료 업로드", key=f"f_{s_name}")
-                cb1, cb2 = st.columns(2)
-                with cb1:
-                    if st.button(f"🚀 시작", key=f"st_{s_name}", use_container_width=True):
-                        update_db_status(st.session_state.invite_code, my_name, f"🔥 {s_name} 중"); st.rerun()
-                with cb2:
-                    if st.button(f"🏁 종료/퀴즈", key=f"ed_{s_name}", use_container_width=True):
-                        update_db_status(st.session_state.invite_code, my_name, "✅ 대기"); st.rerun()
-                        if up_file:
-                            with st.spinner("퀴즈 생성 중..."):
-                                resp = model.generate_content(f"{s_name} 퀴즈 3개 내줘.")
-                                st.info(resp.text)
+        if my_subs:
+            tabs = st.tabs(my_subs)
+            for i, tab in enumerate(tabs):
+                s_name = my_subs[i]
+                with tab:
+                    if st.button(f"❌ {s_name} 삭제", key=f"del_{s_name}"):
+                        my_subs.remove(s_name); update_db_subjects(st.session_state.invite_code, my_name, my_subs); st.rerun()
+                    
+                    up_file = st.file_uploader(f"자료 업로드", key=f"f_{s_name}")
+                    cb1, cb2 = st.columns(2)
+                    with cb1:
+                        if st.button(f"🚀 시작", key=f"st_{s_name}", use_container_width=True):
+                            update_db_status(st.session_state.invite_code, my_name, f"🔥 {s_name} 중"); st.rerun()
+                    with cb2:
+                        if st.button(f"🏁 종료/퀴즈", key=f"ed_{s_name}", use_container_width=True):
+                            update_db_status(st.session_state.invite_code, my_name, "✅ 대기"); st.rerun()
+                            if up_file:
+                                with st.spinner("AI 퀴즈 생성 중..."):
+                                    try:
+                                        resp = model.generate_content(f"{s_name}에 대한 퀴즈 3개 내줘.")
+                                        st.session_state.last_quiz = resp.text
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"퀴즈 생성 중 에러 발생: {e}")
         
+        if 'last_quiz' in st.session_state:
+            with st.expander("🤖 AI 학습 퀴즈 결과", expanded=True):
+                st.write(st.session_state.last_quiz)
+                if st.button("확인 완료"): del st.session_state.last_quiz; st.rerun()
+
         st.divider()
-        st.subheader("💡 AI 진로 상담")
-        career_q = st.text_area("고민 입력")
-        if st.button("🔮 상담"):
+        st.subheader("💡 AI 진로 상담소")
+        career_q = st.text_area("진로 고민을 적어주세요")
+        if st.button("🔮 상담 시작"):
             if career_q:
-                resp = model.generate_content(f"커리어 상담가로서 조언해줘: {career_q}")
-                st.write(resp.text)
+                with st.spinner("분석 중..."):
+                    try:
+                        resp = model.generate_content(f"커리어 상담가로서 조언해줘: {career_q}")
+                        st.info(resp.text)
+                    except Exception as e:
+                        st.error(f"상담 중 에러 발생: {e}")
