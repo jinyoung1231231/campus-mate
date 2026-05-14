@@ -1,4 +1,4 @@
 streamlit
 supabase
-google-generativeai
+model = genai.GenerativeModel('models/gemini-1.5-flash')
 streamlit-autorefresh
