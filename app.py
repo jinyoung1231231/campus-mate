@@ -12,8 +12,6 @@ GEMINI_API_KEY = "AIzaSyAvwGS0XZ9zGkRnbAmvUFmD6tgff0nCrFs"
 
 @st.cache_resource
 def init_connection():
-    @st.cache_resource
-def init_connection():
     # Supabase 연결
     s = create_client(SUPABASE_URL, SUPABASE_KEY)
     
