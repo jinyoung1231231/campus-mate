@@ -18,19 +18,24 @@ def init_connection():
     # Gemini 설정
     genai.configure(api_key=GEMINI_API_KEY)
     
-    # [중요] NotFound 에러 방지를 위한 모델 로딩 로직
-    # 우선 가장 최신인 gemini-1.5-flash를 시도합니다.
-    try:
-        m = genai.GenerativeModel('models/gemini-1.5-flash')
-        # 모델이 정상인지 테스트 호출 (비용 안 드는 아주 짧은 텍스트)
-        m.generate_content("ping") 
-    except Exception:
-        # 위 모델이 없다고 나오면(NotFound), 대안 모델 시도
+    # [수정 포인트] NotFound(404) 에러를 피하기 위한 모델 선택 로직
+    # v1beta나 특정 환경에서 가장 잘 작동하는 이름을 순차적으로 시도합니다.
+    model_names = ['gemini-1.5-flash', 'gemini-pro', 'models/gemini-1.5-flash']
+    
+    m = None
+    for name in model_names:
         try:
-            m = genai.GenerativeModel('gemini-1.5-flash')
-        except:
-            m = genai.GenerativeModel('models/gemini-1.0-pro')
+            temp_model = genai.GenerativeModel(name)
+            # 모델이 유효한지 확인하기 위해 아주 짧은 텍스트 생성 테스트
+            temp_model.generate_content("Hi", generation_config={"max_output_tokens": 1})
+            m = temp_model
+            break # 성공하면 루프 탈출
+        except Exception:
+            continue
             
+    if m is None:
+        st.error("사용 가능한 Gemini 모델을 찾을 수 없습니다. API 키나 권한을 확인해주세요.")
+        
     return s, m
 
 try:
@@ -38,7 +43,7 @@ try:
 except Exception as e:
     st.error(f"연결 오류 발생: {e}")
 
-# --- 2. 세션 및 상태 관리 ---
+# --- 이하 세션 상태 및 화면 로직은 이전과 동일 (전체 코드 유지) ---
 if 'page' not in st.session_state:
     st.session_state.page = 'gate'
 if 'my_teams' not in st.session_state:
@@ -50,8 +55,7 @@ def get_team_data(code):
     try:
         res = supabase.table("team").select("*").eq("invite_code", code).execute()
         return res.data[0] if res.data else None
-    except:
-        return None
+    except: return None
 
 def update_db_status(code, name, status):
     data = get_team_data(code)
@@ -68,9 +72,7 @@ def update_db_subjects(code, name, subs):
         all_subs[name] = subs
         supabase.table("team").update({"subjects": all_subs}).eq("invite_code", code).execute()
 
-# --- 3. 화면 로직 ---
-
-# [게이트웨이]
+# [화면 로직 시작]
 if st.session_state.page == 'gate':
     st.title("🔥 Check-Mate")
     if st.session_state.my_teams:
@@ -84,15 +86,12 @@ if st.session_state.page == 'gate':
             with col_b:
                 if st.button("❌", key=f"out_{code}"):
                     del st.session_state.my_teams[code]; st.rerun()
-        st.divider()
-    
     c1, c2 = st.columns(2)
     with c1:
         if st.button("🆕 팀 생성", use_container_width=True): st.session_state.page = 'create'; st.rerun()
     with c2:
         if st.button("🔗 팀 참여", use_container_width=True): st.session_state.page = 'join'; st.rerun()
 
-# [팀 생성]
 elif st.session_state.page == 'create':
     st.title("🆕 팀 만들기")
     t_name = st.text_input("팀 이름")
@@ -109,7 +108,6 @@ elif st.session_state.page == 'create':
             st.session_state.update({"invite_code": code, "my_name": u_name, "page": "dashboard"})
             st.rerun()
 
-# [참여하기]
 elif st.session_state.page == 'join':
     st.title("🔗 팀 참여")
     code_in = st.text_input("코드 입력").upper()
@@ -127,34 +125,25 @@ elif st.session_state.page == 'join':
             st.session_state.update({"invite_code": code_in, "my_name": u_name, "page": "dashboard"})
             st.rerun()
 
-# [대시보드]
 elif st.session_state.page == 'dashboard':
     st_autorefresh(interval=5000, key="f5")
     data = get_team_data(st.session_state.invite_code)
-    
     if data:
         st.title(f"🏫 {data['team_name']}")
         st.sidebar.button("⬅️ 목록으로", on_click=lambda: st.session_state.update({"page": "gate"}))
-        
-        # 팀원 현황
         st.subheader("👥 팀원 현황")
         m_cols = st.columns(5)
         for i, m in enumerate(data['members']):
             with m_cols[i % 5]:
                 st.info(f"**{m['name']}**\n\n{m['status']}")
-        
         st.divider()
-        
-        # 개인 과목
         my_name = st.session_state.my_name
         my_subs = data.get('subjects', {}).get(my_name, ["자유 공부"])
-        
         st.subheader(f"📚 {my_name}님의 학습")
         new_s = st.text_input("과목 추가", label_visibility="collapsed")
         if st.button("➕ 추가"):
             if new_s and new_s not in my_subs:
                 my_subs.append(new_s); update_db_subjects(st.session_state.invite_code, my_name, my_subs); st.rerun()
-        
         if my_subs:
             tabs = st.tabs(my_subs)
             for i, tab in enumerate(tabs):
@@ -162,7 +151,6 @@ elif st.session_state.page == 'dashboard':
                 with tab:
                     if st.button(f"❌ {s_name} 삭제", key=f"del_{s_name}"):
                         my_subs.remove(s_name); update_db_subjects(st.session_state.invite_code, my_name, my_subs); st.rerun()
-                    
                     up_file = st.file_uploader(f"자료 업로드", key=f"f_{s_name}")
                     cb1, cb2 = st.columns(2)
                     with cb1:
@@ -177,14 +165,11 @@ elif st.session_state.page == 'dashboard':
                                         resp = model.generate_content(f"{s_name}에 대한 퀴즈 3개 내줘.")
                                         st.session_state.last_quiz = resp.text
                                         st.rerun()
-                                    except Exception as e:
-                                        st.error(f"퀴즈 생성 중 에러 발생: {e}")
-        
+                                    except Exception as e: st.error(f"퀴즈 생성 에러: {e}")
         if 'last_quiz' in st.session_state:
             with st.expander("🤖 AI 학습 퀴즈 결과", expanded=True):
                 st.write(st.session_state.last_quiz)
                 if st.button("확인 완료"): del st.session_state.last_quiz; st.rerun()
-
         st.divider()
         st.subheader("💡 AI 진로 상담소")
         career_q = st.text_area("진로 고민을 적어주세요")
@@ -194,5 +179,4 @@ elif st.session_state.page == 'dashboard':
                     try:
                         resp = model.generate_content(f"커리어 상담가로서 조언해줘: {career_q}")
                         st.info(resp.text)
-                    except Exception as e:
-                        st.error(f"상담 중 에러 발생: {e}")
+                    except Exception as e: st.error(f"상담 에러: {e}")
