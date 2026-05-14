@@ -117,6 +117,13 @@ elif st.session_state.page == 'join':
 
 # [화면 3: 대시보드]
 elif st.session_state.page == 'dashboard':
+    elif st.session_state.page == 'dashboard':
+    # 5초마다 자동으로 화면을 새로고침합니다 (조용히 데이터를 다시 읽어옴)
+    st_autorefresh(interval=5000, key="datarefresh")
+    
+    try:
+        res = supabase.table("team").select("*").eq("invite_code", st.session_state.invite_code).execute()
+        # ... 이하 동일 ...
     try:
         res = supabase.table("team").select("*").eq("invite_code", st.session_state.invite_code).execute()
         if not res.data:
