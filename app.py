@@ -12,29 +12,22 @@ GEMINI_API_KEY = "AIzaSyAvwGS0XZ9zGkRnbAmvUFmD6tgff0nCrFs"
 
 @st.cache_resource
 def init_connection():
+    @st.cache_resource
+def init_connection():
     # Supabase 연결
     s = create_client(SUPABASE_URL, SUPABASE_KEY)
     
     # Gemini 설정
     genai.configure(api_key=GEMINI_API_KEY)
     
-    # [수정 포인트] NotFound(404) 에러를 피하기 위한 모델 선택 로직
-    # v1beta나 특정 환경에서 가장 잘 작동하는 이름을 순차적으로 시도합니다.
-    model_names = ['gemini-1.5-flash', 'gemini-pro', 'models/gemini-1.5-flash']
-    
-    m = None
-    for name in model_names:
-        try:
-            temp_model = genai.GenerativeModel(name)
-            # 모델이 유효한지 확인하기 위해 아주 짧은 텍스트 생성 테스트
-            temp_model.generate_content("Hi", generation_config={"max_output_tokens": 1})
-            m = temp_model
-            break # 성공하면 루프 탈출
-        except Exception:
-            continue
-            
-    if m is None:
-        st.error("사용 가능한 Gemini 모델을 찾을 수 없습니다. API 키나 권한을 확인해주세요.")
+    # 가장 기본이 되는 모델명 하나만 지정 (models/ 없이)
+    try:
+        m = genai.GenerativeModel('gemini-1.5-flash')
+        # 연결 테스트용 (성공하면 통과, 실패하면 에러 메시지 출력)
+        m.generate_content("test", generation_config={"max_output_tokens": 1})
+    except Exception as e:
+        st.error(f"Gemini 연결 실패 상세 원인: {e}")
+        m = None
         
     return s, m
 
