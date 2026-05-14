@@ -1,6 +1,6 @@
 import streamlit as st
 from supabase import create_client, Client
-import requests  # 구글 라이브러리 대신 표준 통신 라이브러리 사용
+import google.generativeai as genai
 import random
 import string
 from datetime import datetime
@@ -19,7 +19,7 @@ for key in ['page', 'my_name', 'invite_code', 'ai_ans', 'file_content']:
     if key not in st.session_state:
         st.session_state[key] = "gate" if key == 'page' else ""
 
-# --- 3. [핵심] 라이브러리 충돌 원천 차단! (Direct API 통신) ---
+# --- 3. [핵심] 죽은 모델 폐기! 무조건 최신형으로 직결 ---
 def extract_text(uploaded_file):
     try:
         if uploaded_file.type == "application/pdf":
@@ -29,9 +29,8 @@ def extract_text(uploaded_file):
     except: return ""
 
 def run_ai(prompt_type, **kwargs):
-    with st.spinner("AI가 분석 중입니다..."):
+    with st.spinner("AI 분석 중... (제발 되어라🙏)"):
         try:
-            # 1. 프롬프트 세팅
             if prompt_type == "plan":
                 p = f"목표:{kwargs['grade']}, 기간:{kwargs['days']}일. 아래 자료 분석 후 일정 짜줘:\n{st.session_state.file_content[:3500]}"
             elif prompt_type == "quiz":
@@ -39,32 +38,19 @@ def run_ai(prompt_type, **kwargs):
             elif prompt_type == "consult":
                 p = f"상담 답변해줘: {kwargs['q']}"
             
-            api_key = st.secrets["GEMINI_API_KEY"]
-            headers = {'Content-Type': 'application/json'}
-            data = {"contents": [{"parts": [{"text": p}]}]}
+            # API 키 등록
+            genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
             
-            # [해결] 구글 라이브러리 버그를 피하기 위해, 서버에 직접 요청(HTTP POST)을 꽂아버립니다.
-            url_flash = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
-            res = requests.post(url_flash, headers=headers, json=data)
+            # [해결] 옛날 모델(pro) 다 버리고, 항상 최신 버전으로 업데이트되는 latest 명칭 사용
+            model = genai.GenerativeModel('gemini-1.5-flash-latest')
             
-            if res.status_code == 200:
-                result = res.json()
-                st.session_state.ai_ans = result['candidates'][0]['content']['parts'][0]['text']
-                st.rerun()
-            else:
-                # 1.5-flash가 막혀있다면, 가장 기본형인 gemini-pro로 2차 다이렉트 통신 시도
-                url_pro = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={api_key}"
-                res_pro = requests.post(url_pro, headers=headers, json=data)
-                
-                if res_pro.status_code == 200:
-                    result = res_pro.json()
-                    st.session_state.ai_ans = result['candidates'][0]['content']['parts'][0]['text']
-                    st.rerun()
-                else:
-                    st.error(f"❌ 구글 API 키 오류 (Secrets를 확인해주세요): {res_pro.text}")
+            res = model.generate_content(p)
+            st.session_state.ai_ans = res.text
+            st.rerun() # 성공 시 바로 화면 갱신
                 
         except Exception as e:
-            st.error(f"❌ 시스템 통신 오류: {e}")
+            # 만약 여기서도 에러가 난다면, 코드가 아니라 구글 API 키 권한(Generative Language API 사용 설정) 문제입니다.
+            st.error(f"❌ 구글 클라우드 API 권한 오류: {e}")
 
 # --- 4. 화면 구성 ---
 
@@ -162,7 +148,7 @@ elif st.session_state.page == 'dashboard':
                     days = c_d.number_input("남은 기간", 1, 100, 7)
                     grade = c_g.selectbox("목표 성적", ["A+", "B+", "Pass"])
                     
-                    if st.button("🪄 AI 일정 생성 (다이렉트)"):
+                    if st.button("🪄 AI 일정 생성"):
                         if st.session_state.file_content:
                             ml = data['members']
                             for m in ml:
