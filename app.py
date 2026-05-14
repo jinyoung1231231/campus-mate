@@ -19,7 +19,7 @@ for key in ['page', 'my_name', 'invite_code', 'ai_ans', 'file_content']:
     if key not in st.session_state:
         st.session_state[key] = "gate" if key == 'page' else ""
 
-# --- 3. [핵심] 구글 서버 자동 탐색 (Flash 모델 최우선) ---
+# --- 3. [핵심] 텍스트 추출 및 구글 AI 달력 생성 ---
 def extract_text(uploaded_file):
     try:
         if uploaded_file.type == "application/pdf":
@@ -29,10 +29,18 @@ def extract_text(uploaded_file):
     except: return ""
 
 def run_ai(prompt_type, **kwargs):
-    with st.spinner("AI 분석 중... (새 API 키로 작동 중!)"):
+    with st.spinner("AI가 달력 일정을 표(Table)로 그리고 있습니다... 📅"):
         try:
+            today_str = datetime.now().strftime("%Y년 %m월 %d일")
+            
             if prompt_type == "plan":
-                p = f"목표:{kwargs['grade']}, 기간:{kwargs['days']}일. 아래 자료 분석 후 일정 짜줘:\n{st.session_state.file_content[:3500]}"
+                p = f"""오늘 날짜는 {today_str}입니다. 
+목표 성적: {kwargs['grade']}, 남은 기간: {kwargs['days']}일.
+아래 제공된 학습 자료를 바탕으로, 오늘부터 시작하는 일별 학습 일정을 '달력 형태의 마크다운 표(Table)'로 깔끔하게 작성해주세요.
+표의 컬럼은 [날짜(D-day), 요일, 학습 분량 및 핵심 키워드, 복습 포인트]로 구성하고, {kwargs['days']}일치 일정을 모두 표에 채워주세요.
+
+[학습 자료]
+{st.session_state.file_content[:3500]}"""
             elif prompt_type == "quiz":
                 p = f"아래 자료에서 핵심 퀴즈 3개와 정답 내줘:\n{st.session_state.file_content[:3500]}"
             elif prompt_type == "consult":
@@ -46,10 +54,9 @@ def run_ai(prompt_type, **kwargs):
                     valid_models.append(m.name)
             
             if not valid_models:
-                st.error("❌ 이 API 키로는 텍스트 AI를 쓸 수 없습니다. 새 키를 발급받으세요.")
+                st.error("❌ API 키 오류. 새 키를 발급받으세요.")
                 return
             
-            # [수정] 무료 한도가 훨씬 넉넉한 flash 모델을 최우선으로 찾습니다.
             target_model = None
             for kw in ['flash-latest', '2.5-flash', '2.0-flash', '1.5-flash', 'flash']:
                 for m_name in valid_models:
@@ -67,7 +74,7 @@ def run_ai(prompt_type, **kwargs):
             st.rerun()
                 
         except Exception as e:
-            st.error(f"❌ 구글 할당량 초과 또는 통신 오류: {e}")
+            st.error(f"❌ 오류 발생: {e}")
 
 # --- 4. 화면 구성 ---
 
@@ -156,33 +163,58 @@ elif st.session_state.page == 'dashboard':
 
                 if my_subs:
                     sel_sub = st.selectbox("현재 공부할 과목", [s['name'] for s in my_subs])
-                    up_file = st.file_uploader("자료 업로드", type=['pdf', 'txt'])
-                    if up_file: st.session_state.file_content = extract_text(up_file); st.success("파일 업로드 완료")
                     
+                    st.write("---")
+                    # [완벽 수정] 입력 방식을 라디오 버튼으로 깔끔하게 선택!
+                    input_method = st.radio("🔽 자료 입력 방식을 선택하세요", ["📝 텍스트 직접 쓰기/붙여넣기", "📁 파일 업로드 (PDF/TXT)"], horizontal=True)
+                    
+                    if input_method == "📝 텍스트 직접 쓰기/붙여넣기":
+                        manual_text = st.text_area("학습할 내용을 여기에 직접 입력하거나 붙여넣으세요.", height=150)
+                        if manual_text:
+                            st.session_state.file_content = manual_text
+                            st.success(f"✅ 텍스트 입력 완료! (총 {len(manual_text)}자)")
+                        else:
+                            st.session_state.file_content = ""
+                            
+                    elif input_method == "📁 파일 업로드 (PDF/TXT)":
+                        up_file = st.file_uploader("교안 파일 업로드", type=['pdf', 'txt'])
+                        if up_file: 
+                            extracted = extract_text(up_file)
+                            if len(extracted) > 0:
+                                st.session_state.file_content = extracted
+                                st.success(f"✅ 파일 텍스트 인식 완료! (총 {len(extracted)}자)")
+                            else:
+                                st.session_state.file_content = ""
+                                st.error("🚨 스캔본(이미지) PDF라 글자를 읽을 수 없습니다. '텍스트 직접 쓰기' 방식을 선택해주세요.")
+                        else:
+                            st.session_state.file_content = ""
+                    
+                    st.write("---")
                     c_d, c_g = st.columns(2)
-                    days = c_d.number_input("남은 기간", 1, 100, 7)
+                    days = c_d.number_input("남은 기간 (일)", 1, 100, 7)
                     grade = c_g.selectbox("목표 성적", ["A+", "B+", "Pass"])
                     
-                    if st.button("🪄 AI 일정 생성"):
+                    if st.button("🪄 AI 일정 달력(표) 생성", type="primary", use_container_width=True):
                         if st.session_state.file_content:
                             ml = data['members']
                             for m in ml:
                                 if m['name'] == st.session_state.my_name: m['grade'] = grade; m['days'] = f"{days}일"
                             supabase.table("team").update({"members": ml}).eq("invite_code", st.session_state.invite_code).execute()
                             run_ai("plan", grade=grade, days=days)
-                        else: st.warning("파일을 먼저 올려주세요.")
+                        else: 
+                            st.warning("⚠️ 자료를 먼저 입력해주세요! (내용이 비어있습니다)")
 
                     st.divider()
                     c1, c2 = st.columns(2)
                     with c1:
-                        if st.button("🚀 공부 시작"):
+                        if st.button("🚀 공부 시작", use_container_width=True):
                             ml = data['members']
                             for m in ml:
                                 if m['name'] == st.session_state.my_name: m['status'] = f"🔥 {sel_sub} 중"
                             supabase.table("team").update({"members": ml}).eq("invite_code", st.session_state.invite_code).execute()
                             st.rerun()
                     with c2:
-                        if st.button("🏁 종료 & 퀴즈 생성"):
+                        if st.button("🏁 종료 & 퀴즈 생성", use_container_width=True):
                             ml = data['members']
                             for m in ml:
                                 if m['name'] == st.session_state.my_name: m['status'] = "✅ 대기"
@@ -222,4 +254,4 @@ elif st.session_state.page == 'dashboard':
             if st.session_state.ai_ans:
                 st.markdown(st.session_state.ai_ans)
                 if st.button("🧹 기록 지우기"): st.session_state.ai_ans = ""; st.rerun()
-            else: st.info("AI의 답변이 여기에 표시됩니다.")
+            else: st.info("AI가 짜준 '달력(표)' 일정이 여기에 뜹니다! 📅")
