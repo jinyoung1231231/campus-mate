@@ -35,7 +35,7 @@ supabase, model = init_connection()
 if 'page' not in st.session_state: st.session_state.page = 'gate'
 if 'my_teams' not in st.session_state: st.session_state.my_teams = {}
 if 'my_name' not in st.session_state: st.session_state.my_name = ""
-if 'ai_ans' not in st.session_state: st.session_state.ai_ans = "" # AI 답변 전용 섹션
+if 'ai_ans' not in st.session_state: st.session_state.ai_ans = "" 
 
 def get_team_data(code):
     try:
@@ -50,11 +50,9 @@ def update_db(code, column, value):
 
 # --- 3. UI 로직 ---
 
-# [게이트웨이]
+# [게이트웨이: 팀 생성/참여]
 if st.session_state.page == 'gate':
     st.title("🔥 Check-Mate")
-    st.write("친구들과 실시간 상태를 공유하고 AI의 도움을 받으세요!")
-    
     if st.session_state.my_teams:
         for code, t_name in st.session_state.my_teams.items():
             if st.button(f"🏫 {t_name} 입장 ({code})", key=f"go_{code}", use_container_width=True):
@@ -95,23 +93,21 @@ elif st.session_state.page == 'dashboard':
     
     if data:
         st.sidebar.title(f"🏫 {data['team_name']}")
-        menu = st.sidebar.radio("메뉴", ["📚 학습&파일분석", "📋 커뮤니티", "💡 진로상담"])
+        menu = st.sidebar.radio("메뉴", ["📚 학습 관리 & AI 도구", "📋 커뮤니티", "💡 진로상담"])
         
-        # 팀원 실시간 상태 (사이드바 고정)
         st.sidebar.divider()
-        st.sidebar.subheader("👥 팀원 현황")
+        st.sidebar.subheader("👥 팀원 실시간 현황")
         for m in data.get('members', []):
             st.sidebar.write(f"{'🔥' if '중' in m['status'] else '✅'} {m['name']}: {m['status']}")
         
         if st.sidebar.button("⬅️ 메인으로"): st.session_state.page = 'gate'; st.rerun()
 
-        # --- 메인 레이아웃: 좌(기능) / 우(AI 답변) ---
+        # 메인 레이아웃 분할
         col_main, col_ai = st.columns([1, 1])
 
         with col_main:
-            # 1. 학습 및 파일 분석
-            if menu == "📚 학습&파일분석":
-                st.header("📚 과목 학습 & AI 퀴즈")
+            if menu == "📚 학습 관리 & AI 도구":
+                st.header("📚 과목 학습 & AI 플래너")
                 my_name = st.session_state.my_name
                 my_subs = data.get('subjects', {}).get(my_name, [])
 
@@ -123,10 +119,21 @@ elif st.session_state.page == 'dashboard':
                         update_db(st.session_state.invite_code, "subjects", all_s); st.rerun()
 
                 if my_subs:
-                    sel_sub = st.selectbox("진행할 과목", [s['name'] for s in my_subs])
-                    
-                    # 파일 업로드
+                    sel_sub = st.selectbox("현재 과목 선택", [s['name'] for s in my_subs])
                     up_file = st.file_uploader("강의자료/교안 업로드 (PDF/TXT)", type=['pdf', 'txt'], key=f"file_{sel_sub}")
+                    
+                    # --- 핵심: 일정 짜기 버튼 복구 ---
+                    if st.button("🗓️ 이 자료로 일정 짜줘", use_container_width=True):
+                        if up_file and model:
+                            with st.spinner("AI가 일정을 구성 중입니다..."):
+                                text = up_file.read().decode("utf-8", errors="ignore")
+                                res = model.generate_content(f"다음 학습 자료를 바탕으로 효율적인 주간 학습 일정을 짜줘:\n{text[:3000]}")
+                                st.session_state.ai_ans = res.text
+                                st.rerun()
+                        else:
+                            st.warning("파일을 먼저 업로드해주세요!")
+
+                    st.divider()
                     
                     c1, c2 = st.columns(2)
                     with c1:
@@ -136,55 +143,53 @@ elif st.session_state.page == 'dashboard':
                                 if m['name'] == my_name: m['status'] = f"🔥 {sel_sub} 중"
                             update_db(st.session_state.invite_code, "members", ml); st.rerun()
                     with c2:
-                        if st.button("🏁 종료 & 테스트", use_container_width=True):
+                        if st.button("🏁 종료 & 퀴즈", use_container_width=True):
                             ml = data['members']
                             for m in ml:
                                 if m['name'] == my_name: m['status'] = "✅ 대기"
                             update_db(st.session_state.invite_code, "members", ml)
                             
-                            # AI 퀴즈 생성 로직
+                            # 공부 종료 후 퀴즈 생성
                             if up_file and model:
-                                with st.spinner("자료 분석 중..."):
+                                with st.spinner("퀴즈 생성 중..."):
+                                    up_file.seek(0) # 파일 포인터 리셋
                                     text = up_file.read().decode("utf-8", errors="ignore")
-                                    res = model.generate_content(f"내용 요약 및 핵심 퀴즈 3개 내줘:\n{text[:3000]}")
+                                    res = model.generate_content(f"이 내용에서 중요한 내용으로 퀴즈 3개만 내줘(정답 포함):\n{text[:3000]}")
                                     st.session_state.ai_ans = res.text
                             else:
-                                st.session_state.ai_ans = "파일이 없어 일반 상식 퀴즈를 냅니다: 파이썬의 창시자는?"
+                                st.session_state.ai_ans = "공부 종료! 파일이 없어 퀴즈 대신 응원 한마디: 오늘도 고생했어!"
                             st.rerun()
 
-            # 2. 커뮤니티 (게시판)
             elif menu == "📋 커뮤니티":
                 st.header("📋 팀 게시판")
                 with st.form("post_form", clear_on_submit=True):
                     t = st.text_input("제목")
                     c = st.text_area("내용")
-                    if st.form_submit_button("글쓰기"):
+                    if st.form_submit_button("등록"):
                         ps = data.get('posts', []) or []
                         ps.append({"title": t, "content": c, "author": st.session_state.my_name, "time": datetime.now().strftime("%H:%M")})
                         update_db(st.session_state.invite_code, "posts", ps); st.rerun()
-                
                 for p in reversed(data.get('posts', []) or []):
                     with st.expander(f"{p['title']} - {p['author']}"): st.write(p['content'])
 
-            # 3. 진로상담
             elif menu == "💡 진로상담":
                 st.header("💡 AI 상담소")
-                q = st.text_area("고민을 적으세요")
+                q = st.text_area("고민을 입력하세요")
                 if st.button("상담 시작"):
                     if q and model:
-                        with st.spinner("AI 상담사 출동 중..."):
+                        with st.spinner("AI 상담 중..."):
                             res = model.generate_content(f"커리어 상담가로서 조언해줘: {q}")
                             st.session_state.ai_ans = res.text
                             st.rerun()
 
         with col_ai:
-            # --- [핵심] AI 전용 답변 칸 ---
+            # --- AI 답변 전용 섹션 ---
             st.header("🤖 AI Response")
             st.markdown("---")
             if st.session_state.ai_ans:
-                st.success("답변 도착!")
+                st.success("AI의 분석 결과입니다.")
                 st.write(st.session_state.ai_ans)
-                if st.button("지우기"):
+                if st.button("결과 지우기"):
                     st.session_state.ai_ans = ""; st.rerun()
             else:
-                st.info("파일 분석 결과나 AI 상담 답변이 여기에 표시됩니다.")
+                st.info("여기에 AI의 일정 추천, 퀴즈, 상담 답변이 표시됩니다.")
