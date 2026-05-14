@@ -5,37 +5,40 @@ import random
 import string
 from streamlit_autorefresh import st_autorefresh
 
-# --- 1. 보안 설정 및 연결 (진단 모드) ---
+# --- 1. 보안 설정 및 연결 (404 해결 로직) ---
 def init_connection():
     try:
-        # 1. Secrets 존재 확인
-        if "SUPABASE_URL" not in st.secrets:
-            st.error("❌ Secrets에 'SUPABASE_URL'이 없습니다.")
-            st.stop()
-        
+        # Secrets 로드
         s_url = st.secrets["SUPABASE_URL"]
         s_key = st.secrets["SUPABASE_KEY"]
         g_key = st.secrets["GEMINI_API_KEY"]
         
-        # 2. Supabase 연결
+        # Supabase 연결
         s = create_client(s_url, s_key)
         
-        # 3. Gemini 연결 시도
+        # Gemini 설정
         genai.configure(api_key=g_key)
         
-        # 가장 표준적인 모델 하나만 집중 타격
-        m = genai.GenerativeModel('gemini-1.5-flash')
-        
-        # [중요] 실제로 키가 작동하는지 짧은 테스트
-        m.generate_content("hi", generation_config={"max_output_tokens": 1})
+        # [해결 핵심] 404 에러 방지를 위한 모델 지정 방식 변경
+        # API 버전을 명시하지 않고 가장 표준적인 이름을 사용합니다.
+        # 만약 gemini-1.5-flash가 안되면 gemini-pro로 즉시 전환합니다.
+        m = None
+        for model_name in ['gemini-1.5-flash', 'gemini-pro']:
+            try:
+                temp_model = genai.GenerativeModel(model_name)
+                # 실제로 작동하는지 테스트 호출 (안되면 예외 발생)
+                temp_model.generate_content("ping", generation_config={"max_output_tokens": 1})
+                m = temp_model
+                break
+            except Exception:
+                continue
         
         return s, m
     except Exception as e:
-        # 실패 시 에러의 정체를 화면에 박제합니다.
-        st.error(f"🚨 연결 실패 원인: {e}")
+        st.error(f"🚨 연결 실패 상세 원인: {e}")
         return None, None
 
-# 캐시를 사용하지 않고 우선 연결 시도 (에러 확인을 위해)
+# 연결 실행
 supabase, model = init_connection()
 
 # --- 2. 세션 상태 관리 ---
@@ -71,6 +74,7 @@ def update_db_subjects(code, name, subs):
 
 # --- 3. 화면 UI 로직 ---
 
+# [화면: 게이트웨이]
 if st.session_state.page == 'gate':
     st.title("🔥 Check-Mate")
     if st.session_state.my_teams:
@@ -91,22 +95,24 @@ if st.session_state.page == 'gate':
     with c2:
         if st.button("🔗 팀 참여", use_container_width=True): st.session_state.page = 'join'; st.rerun()
 
+# [화면: 팀 생성]
 elif st.session_state.page == 'create':
     st.title("🆕 새로운 팀 만들기")
     t_name = st.text_input("팀 이름")
     u_name = st.text_input("내 닉네임")
-    if st.button("생성 완료"):
+    if st.button("완료"):
         if t_name and u_name:
             code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
             supabase.table("team").insert({
                 "invite_code": code, "team_name": t_name,
-                "members": [{"name": u_name, "status": "✅ 대기"}],
+                "members": [{"name": u_name, "status": "✅ 대기 중"}],
                 "subjects": {u_name: ["자유 공부"]}
             }).execute()
             st.session_state.my_teams[code] = t_name
             st.session_state.update({"invite_code": code, "my_name": u_name, "page": "dashboard"})
             st.rerun()
 
+# [화면: 대시보드]
 elif st.session_state.page == 'dashboard':
     st_autorefresh(interval=30000, key="refresh")
     data = get_team_data(st.session_state.invite_code)
@@ -114,40 +120,45 @@ elif st.session_state.page == 'dashboard':
     if data:
         st.title(f"🏫 {data['team_name']}")
         st.error(f"📢 초대 코드: **{st.session_state.invite_code}**")
+        st.sidebar.button("⬅️ 목록으로", on_click=lambda: st.session_state.update({"page": "gate"}))
         
         my_name = st.session_state.my_name
-        my_subs = data.get('subjects', {}).get(my_name, ["자유 공부"])
         
-        st.subheader(f"📚 {my_name}님의 학습실")
-        # 과목 시작/종료 버튼
+        st.subheader(f"👥 실시간 현황")
+        m_cols = st.columns(5)
+        for i, m in enumerate(data['members']):
+            with m_cols[i % 5]:
+                st.info(f"**{m['name']}**\n\n{m['status']}")
+        
+        st.divider()
         cb1, cb2 = st.columns(2)
         with cb1:
             if st.button("🔥 공부 시작", use_container_width=True):
                 update_db_status(st.session_state.invite_code, my_name, "🔥 열공 중"); st.rerun()
         with cb2:
-            if st.button("✅ 휴식/종료", use_container_width=True):
+            if st.button("✅ 휴식하기", use_container_width=True):
                 update_db_status(st.session_state.invite_code, my_name, "✅ 대기 중"); st.rerun()
 
         st.divider()
-        
-        # --- AI 상담소 영역 ---
+        # --- AI 상담소 ---
         st.subheader("💡 AI 진로 상담소")
-        career_q = st.text_area("진로 고민을 적어주세요", key="career_input")
+        career_q = st.text_area("고민을 적어주세요", key="career_input")
         
         if st.button("🔮 상담 시작", use_container_width=True):
             if career_q:
                 if model:
-                    with st.spinner("AI 상담사가 분석 중입니다..."):
+                    with st.spinner("AI 상담사가 답변을 생성하고 있습니다..."):
                         try:
+                            # 404 에러 방지를 위해 가장 표준적인 호출 방식 사용
                             resp = model.generate_content(f"조언해줘: {career_q}")
                             st.session_state.career_result = resp.text
                             st.rerun()
                         except Exception as e:
-                            st.error(f"상담 실행 에러: {e}")
+                            st.error(f"상담 실행 중 에러: {e}")
                 else:
-                    st.error("🚨 AI 모델이 연결되지 않았습니다. 상단의 에러 메시지를 확인하세요.")
+                    st.error("🚨 AI 모델 연결에 실패했습니다. API 키와 권한을 확인하세요.")
             else:
-                st.warning("내용을 입력해주세요.")
+                st.warning("내용을 입력하세요.")
 
         if st.session_state.career_result:
             st.success("🤖 AI 상담 결과")
