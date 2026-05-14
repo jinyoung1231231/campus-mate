@@ -1,3 +1,4 @@
+from streamlit_autorefresh import st_autorefresh
 import streamlit as st
 from supabase import create_client, Client
 import google.generativeai as genai
