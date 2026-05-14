@@ -7,45 +7,19 @@ from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
 from PyPDF2 import PdfReader
 
-# --- 1. 서비스 연결 및 AI 초기화 (404/NotFound 완벽 해결) ---
+# --- 1. DB 연결 (AI는 캐싱하지 않음. 캐싱 에러 원천 차단) ---
 @st.cache_resource
-def init_connection():
-    try:
-        s_url = st.secrets["SUPABASE_URL"]
-        s_key = st.secrets["SUPABASE_KEY"]
-        g_key = st.secrets["GEMINI_API_KEY"]
-        s = create_client(s_url, s_key)
-        
-        # 구글 AI 설정
-        genai.configure(api_key=g_key)
-        
-        # [해결] 작동하는 모델 명칭을 찾을 때까지 3단계 시도
-        candidates = ['gemini-1.5-flash', 'models/gemini-1.5-flash', 'gemini-pro']
-        selected_model = None
-        
-        for name in candidates:
-            try:
-                m = genai.GenerativeModel(name)
-                # 핑(Ping) 테스트로 실제 작동 여부 확인
-                m.generate_content("hi", generation_config={"max_output_tokens": 1})
-                selected_model = m
-                break
-            except:
-                continue
-        
-        return s, selected_model
-    except Exception as e:
-        st.error(f"🚨 시스템 초기 설정 오류: {e}")
-        return None, None
+def init_db():
+    return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 
-supabase, model = init_connection()
+supabase = init_db()
 
-# --- 2. 세션 상태 초기화 (AttributeError 방지) ---
+# --- 2. 세션 상태 관리 ---
 for key in ['page', 'my_name', 'invite_code', 'ai_ans', 'file_content']:
     if key not in st.session_state:
         st.session_state[key] = "gate" if key == 'page' else ""
 
-# --- 3. 핵심 기능 함수 ---
+# --- 3. 핵심 기능 (버튼 누를 때마다 100% 작동 모델 찾기) ---
 def extract_text(uploaded_file):
     try:
         if uploaded_file.type == "application/pdf":
@@ -55,25 +29,44 @@ def extract_text(uploaded_file):
     except: return ""
 
 def run_ai(prompt_type, **kwargs):
-    if not model:
-        st.error("🤖 AI 모델 연결 실패. API 키를 확인하세요.")
-        return
     with st.spinner("AI가 분석 중입니다..."):
         try:
+            # 1. 프롬프트 세팅
             if prompt_type == "plan":
-                p = f"성적목표:{kwargs['grade']}, 기간:{kwargs['days']}일. 아래 자료를 분석해 일정을 짜줘:\n{st.session_state.file_content[:3500]}"
+                p = f"목표:{kwargs['grade']}, 기간:{kwargs['days']}일. 아래 자료를 분석해 일정을 짜줘:\n{st.session_state.file_content[:3500]}"
             elif prompt_type == "quiz":
-                p = f"아래 자료에서 핵심 퀴즈 3개와 정답 생성:\n{st.session_state.file_content[:3500]}"
+                p = f"아래 자료에서 핵심 퀴즈 3개와 정답을 내줘:\n{st.session_state.file_content[:3500]}"
             elif prompt_type == "consult":
                 p = f"상담 답변: {kwargs['q']}"
             
-            res = model.generate_content(p)
-            st.session_state.ai_ans = res.text
-            st.rerun()
+            # 2. API 키 불러오기
+            genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+            
+            # 3. [핵심] 실패 기록을 남기지 않고, 여기서 살아있는 모델을 찾아 바로 답변 받기
+            models_to_try = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro', 'models/gemini-1.5-flash']
+            success = False
+            last_error = ""
+            
+            for m_name in models_to_try:
+                try:
+                    m = genai.GenerativeModel(m_name)
+                    res = m.generate_content(p)
+                    st.session_state.ai_ans = res.text
+                    success = True
+                    break # 성공하면 즉시 탈출
+                except Exception as e:
+                    last_error = str(e)
+                    continue # 실패하면 다음 모델로 조용히 넘어감
+            
+            if success:
+                st.rerun() # 성공 시 화면 갱신
+            else:
+                st.error(f"❌ 구글 서버 일시 오류 (잠시 후 다시 버튼을 눌러주세요): {last_error}")
+                
         except Exception as e:
-            st.error(f"❌ AI 호출 실패: {e}")
+            st.error(f"❌ 시스템 오류: {e}")
 
-# --- 4. 화면 로직 구성 ---
+# --- 4. 화면 구성 ---
 
 # [게이트: 다중 팀 관리]
 if st.session_state.page == 'gate':
@@ -83,7 +76,7 @@ if st.session_state.page == 'gate':
     un = st.text_input("사용자 닉네임 입력 (로그인)")
     
     if un:
-        # DB에서 본인이 포함된 모든 팀 목록 조회
+        # 내 소속 팀 리스트 불러오기
         try:
             all_teams = supabase.table("team").select("*").execute().data
             my_teams = [t for t in all_teams if any(m['name'] == un for m in t['members'])]
@@ -94,6 +87,8 @@ if st.session_state.page == 'gate':
                     if st.button(f"🏠 {t['team_name']} 입장", key=f"t_{t['invite_code']}"):
                         st.session_state.update({"invite_code": t['invite_code'], "my_name": un, "page": "dashboard"})
                         st.rerun()
+            else:
+                st.info("소속된 팀이 없습니다. 아래에서 팀을 생성하거나 코드를 입력하세요.")
         except:
             st.warning("데이터 연결 중...")
 
@@ -126,7 +121,7 @@ if st.session_state.page == 'gate':
                     st.session_state.update({"invite_code": ci, "my_name": un, "page": "dashboard"})
                     st.rerun()
 
-# [대시보드: 기능 구현]
+# [대시보드]
 elif st.session_state.page == 'dashboard':
     if not st.session_state.invite_code: 
         st.session_state.page = 'gate'; st.rerun()
@@ -136,12 +131,14 @@ elif st.session_state.page == 'dashboard':
     data = res.data[0] if res.data else None
     
     if data:
+        # [기능] 초대코드 숨김
         with st.sidebar.expander("🎫 초대코드 확인"):
             st.code(data['invite_code'])
         
         st.sidebar.title(f"🏫 {data['team_name']}")
         menu = st.sidebar.radio("메뉴", ["📚 내 학습 & AI", "👥 팀원 상세 과목", "📋 게시판", "💡 상담"])
         
+        # [기능] 팀 나가기 (다른 팀으로 자유롭게 전환)
         if st.sidebar.button("⬅️ 다른 팀으로 이동"):
             st.session_state.update({"invite_code": "", "page": "gate", "ai_ans": ""}); st.rerun()
 
@@ -167,13 +164,16 @@ elif st.session_state.page == 'dashboard':
                     days = c_d.number_input("남은 기간", 1, 100, 7)
                     grade = c_g.selectbox("목표 성적", ["A+", "B+", "Pass"])
                     
-                    if st.button("🪄 AI 일정 생성"):
+                    if st.button("🪄 AI 맞춤 일정 생성", use_container_width=True):
                         if st.session_state.file_content:
                             ml = data['members']
                             for m in ml:
                                 if m['name'] == st.session_state.my_name: m['grade'] = grade; m['days'] = f"{days}일"
                             supabase.table("team").update({"members": ml}).eq("invite_code", st.session_state.invite_code).execute()
+                            # 실행 버튼을 누르는 순간 AI를 호출함
                             run_ai("plan", grade=grade, days=days)
+                        else:
+                            st.warning("먼저 자료를 업로드해주세요.")
 
                     st.divider()
                     c1, c2 = st.columns(2)
