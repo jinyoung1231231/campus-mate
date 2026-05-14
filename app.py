@@ -25,8 +25,9 @@ except Exception as e:
 # --- 2. 세션 및 상태 관리 ---
 if 'page' not in st.session_state:
     st.session_state.page = 'gate'
+# 처음 앱을 켰을 때 과목 리스트가 비어있다면 안내 문구 하나만 넣어둡니다.
 if 'my_subjects' not in st.session_state:
-    st.session_state.my_subjects = ["기본 과목"]
+    st.session_state.my_subjects = ["자유 공부"]
 
 def update_db_status(new_status):
     try:
@@ -42,7 +43,6 @@ def update_db_status(new_status):
 
 # --- 3. 화면 로직 ---
 
-# [게이트웨이]
 if st.session_state.page == 'gate':
     st.title("🔥 Check-Mate")
     st.subheader("AI 실시간 멀티 스터디 플랫폼")
@@ -56,7 +56,6 @@ if st.session_state.page == 'gate':
             st.session_state.page = 'join'
             st.rerun()
 
-# [팀 생성]
 elif st.session_state.page == 'create':
     st.title("🆕 새로운 팀 만들기")
     t_name = st.text_input("팀 이름")
@@ -76,7 +75,6 @@ elif st.session_state.page == 'create':
             except Exception as e:
                 st.error(f"생성 실패: {e}")
 
-# [참여하기]
 elif st.session_state.page == 'join':
     st.title("🔗 팀 참여하기")
     code_in = st.text_input("초대 코드 6자리").upper()
@@ -90,20 +88,15 @@ elif st.session_state.page == 'join':
                 supabase.table("team").update({"members": m_list}).eq("invite_code", code_in).execute()
             st.session_state.update({"invite_code": code_in, "my_name": u_name, "page": "dashboard"})
             st.rerun()
-        else:
-            st.error("코드가 올바르지 않습니다.")
 
-# [메인 대시보드]
 elif st.session_state.page == 'dashboard':
-    # 5초마다 팀원 상태 업데이트
     st_autorefresh(interval=5000, key="f5")
     
     res = supabase.table("team").select("*").eq("invite_code", st.session_state.invite_code).execute()
     if res.data:
         data = res.data[0]
         st.title(f"🏫 {data['team_name']}")
-        st.caption(f"코드: {st.session_state.invite_code} | 사용자: {st.session_state.my_name}")
-
+        
         # 1. 팀원 실시간 현황
         st.subheader("👥 팀원 실시간 상태")
         m_cols = st.columns(5)
@@ -119,45 +112,60 @@ elif st.session_state.page == 'dashboard':
 
         st.divider()
 
-        # 2. 개인별 과목 관리 및 학습
+        # 2. 개인별 과목 관리 (수정/삭제/추가)
         st.subheader("📚 나의 학습실")
         
-        # 과목 추가 입력창
+        # 과목 추가
         c_add1, c_add2 = st.columns([3, 1])
         with c_add1:
-            new_sub = st.text_input("새 과목 추가", placeholder="예: 데이터베이스, 알고리즘", label_visibility="collapsed")
+            new_sub = st.text_input("공부할 과목을 입력하세요", placeholder="예: 경제학, 알고리즘", label_visibility="collapsed")
         with c_add2:
-            if st.button("➕ 추가", use_container_width=True):
+            if st.button("➕ 과목 추가", use_container_width=True):
                 if new_sub and new_sub not in st.session_state.my_subjects:
-                    st.session_state.my_subjects.append(new_sub)
+                    # '자유 공부'만 있는 상태에서 새로 추가하면 '자유 공부'를 지우고 깔끔하게 시작하게 할 수도 있습니다.
+                    if "자유 공부" in st.session_state.my_subjects and len(st.session_state.my_subjects) == 1:
+                        st.session_state.my_subjects = [new_sub]
+                    else:
+                        st.session_state.my_subjects.append(new_sub)
                     st.rerun()
 
-        # 과목별 탭 생성
-        tabs = st.tabs(st.session_state.my_subjects)
-        for i, tab in enumerate(tabs):
-            s_name = st.session_state.my_subjects[i]
-            with tab:
-                st.write(f"📖 **{s_name}** 세션")
-                up_file = st.file_uploader(f"{s_name} 자료 업로드", key=f"file_{s_name}")
-                
-                col_btn1, col_btn2 = st.columns(2)
-                with col_btn1:
-                    if st.button(f"🚀 {s_name} 시작", key=f"start_{s_name}", use_container_width=True):
-                        update_db_status(f"🔥 {s_name} 공부 중")
-                        st.rerun()
-                with col_btn2:
-                    if st.button(f"🏁 {s_name} 종료/퀴즈", key=f"end_{s_name}", use_container_width=True):
-                        update_db_status("✅ 대기 중")
-                        if up_file:
-                            with st.spinner("AI 퀴즈 생성 중..."):
-                                prompt = f"{s_name}에 대한 핵심 퀴즈 3개를 내줘."
-                                resp = model.generate_content(prompt)
-                                st.session_state.last_quiz = resp.text
-                                st.rerun()
-                        else:
-                            st.warning("자료를 올려주시면 퀴즈를 풀 수 있습니다!")
+        # 과목별 탭 + 삭제 버튼
+        if st.session_state.my_subjects:
+            tabs = st.tabs(st.session_state.my_subjects)
+            for i, tab in enumerate(tabs):
+                s_name = st.session_state.my_subjects[i]
+                with tab:
+                    col_top1, col_top2 = st.columns([4, 1])
+                    with col_top1:
+                        st.write(f"📖 **{s_name}** 세션")
+                    with col_top2:
+                        # 과목 삭제 기능
+                        if st.button("❌ 삭제", key=f"del_{s_name}"):
+                            st.session_state.my_subjects.remove(s_name)
+                            if not st.session_state.my_subjects: # 다 지우면 기본값 복구
+                                st.session_state.my_subjects = ["자유 공부"]
+                            st.rerun()
 
-        # 퀴즈 결과창
+                    up_file = st.file_uploader(f"{s_name} 자료 업로드", key=f"file_{s_name}")
+                    
+                    col_btn1, col_btn2 = st.columns(2)
+                    with col_btn1:
+                        if st.button(f"🚀 {s_name} 시작", key=f"start_{s_name}", use_container_width=True):
+                            update_db_status(f"🔥 {s_name} 공부 중")
+                            st.rerun()
+                    with col_btn2:
+                        if st.button(f"🏁 {s_name} 종료/퀴즈", key=f"end_{s_name}", use_container_width=True):
+                            update_db_status("✅ 대기 중")
+                            if up_file:
+                                with st.spinner("AI 퀴즈 생성 중..."):
+                                    prompt = f"{s_name}에 대한 핵심 퀴즈 3개를 내줘."
+                                    resp = model.generate_content(prompt)
+                                    st.session_state.last_quiz = resp.text
+                                    st.rerun()
+                            else:
+                                st.warning("자료를 올려주시면 퀴즈를 풀 수 있습니다!")
+
+        # 퀴즈/상담소 (동일)
         if 'last_quiz' in st.session_state:
             with st.expander("🤖 AI 학습 퀴즈 결과", expanded=True):
                 st.write(st.session_state.last_quiz)
@@ -166,18 +174,14 @@ elif st.session_state.page == 'dashboard':
                     st.rerun()
 
         st.divider()
-
-        # 3. AI 진로 상담소
         st.subheader("💡 AI 진로 상담소")
-        career_q = st.text_area("진로 고민을 적어주세요 (전공, 취업, 로드맵 등)")
-        if st.button("🔮 AI 컨설팅 받기", use_container_width=True):
+        career_q = st.text_area("진로 고민을 적어주세요")
+        if st.button("🔮 AI 컨설팅 받기"):
             if career_q:
-                with st.spinner("컨설턴트 AI 분석 중..."):
-                    prompt = f"너는 커리어 전문가야. 고민: {career_q}. 추천 직무와 학습 로드맵을 제안해줘."
-                    resp = model.generate_content(prompt)
-                    st.info("🤖 AI 컨설턴트의 제안")
-                    st.write(resp.text)
+                with st.spinner("분석 중..."):
+                    resp = model.generate_content(f"커리어 전문가로서 답변해줘: {career_q}")
+                    st.info(resp.text)
 
-        if st.button("🚪 로그아웃", use_container_width=True):
+        if st.button("🚪 로그아웃"):
             st.session_state.page = 'gate'
             st.rerun()
