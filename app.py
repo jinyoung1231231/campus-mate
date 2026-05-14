@@ -3,176 +3,170 @@ from supabase import create_client, Client
 import google.generativeai as genai
 import random
 import string
+from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
 
-# --- 1. 서비스 연결 초기화 (에러 진단 모드) ---
+# --- 1. 서비스 연결 초기화 ---
 def init_connection():
     try:
-        # Secrets 로드
         s_url = st.secrets["SUPABASE_URL"]
         s_key = st.secrets["SUPABASE_KEY"]
         g_key = st.secrets["GEMINI_API_KEY"]
-        
-        # Supabase 연결
         s = create_client(s_url, s_key)
-        
-        # Gemini API 설정
         genai.configure(api_key=g_key)
         
-        # [해결 핵심] 모델 목록을 직접 조회하여 사용 가능한 첫 번째 모델을 잡습니다.
+        # 모델 설정
         m = None
         try:
-            # 사용 가능한 모델 목록 중 generateContent가 가능한 모델 찾기
-            available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-            
-            # 우선순위: 1.5-flash -> 1.5-pro -> 목록의 첫 번째
-            target_model = ""
-            if "models/gemini-1.5-flash" in available_models:
-                target_model = "models/gemini-1.5-flash"
-            elif "models/gemini-1.0-pro" in available_models:
-                target_model = "models/gemini-1.0-pro"
-            elif available_models:
-                target_model = available_models[0]
-                
-            if target_model:
-                m = genai.GenerativeModel(target_model)
-                # 연결 테스트
-                m.generate_content("hi", generation_config={"max_output_tokens": 1})
-        except Exception as inner_e:
-            st.error(f"모델 목록 조회 중 에러: {inner_e}")
-            # 리스트 조회가 실패할 경우를 대비한 수동 시도
-            try:
-                m = genai.GenerativeModel('gemini-1.5-flash')
-                m.generate_content("hi", generation_config={"max_output_tokens": 1})
-            except:
-                m = None
-        
+            m = genai.GenerativeModel('gemini-1.5-flash')
+            m.generate_content("hi", generation_config={"max_output_tokens": 1})
+        except:
+            m = None
         return s, m
     except Exception as e:
-        st.error(f"⚠️ 시스템 초기화 중 치명적 오류: {e}")
+        st.error(f"연결 에러: {e}")
         return None, None
 
-# 연결 실행
 supabase, model = init_connection()
 
 # --- 2. 세션 상태 관리 ---
-if 'page' not in st.session_state:
-    st.session_state.page = 'gate'
-if 'my_teams' not in st.session_state:
-    st.session_state.my_teams = {}
-if 'my_name' not in st.session_state:
-    st.session_state.my_name = ""
-if 'career_result' not in st.session_state:
-    st.session_state.career_result = None
+if 'page' not in st.session_state: st.session_state.page = 'gate'
+if 'my_teams' not in st.session_state: st.session_state.my_teams = {}
+if 'my_name' not in st.session_state: st.session_state.my_name = ""
 
+# DB 유틸리티
 def get_team_data(code):
-    try:
-        res = supabase.table("team").select("*").eq("invite_code", code).execute()
-        return res.data[0] if res.data else None
-    except: return None
+    res = supabase.table("team").select("*").eq("invite_code", code).execute()
+    return res.data[0] if res.data else None
 
-def update_db_status(code, name, status):
-    data = get_team_data(code)
-    if data:
-        m_list = data['members']
-        for m in m_list:
-            if m['name'] == name: m['status'] = status
-        supabase.table("team").update({"members": m_list}).eq("invite_code", code).execute()
+def update_db(code, column, value):
+    supabase.table("team").update({column: value}).eq("invite_code", code).execute()
 
-# --- 3. 화면 UI 로직 ---
+# --- 3. UI 화면 로직 ---
 
-# 상단 연결 상태 표시 (디버깅용)
-if model is None:
-    st.error("🚨 AI 모델 연결 실패. API 키 권한이나 라이브러리 버전을 확인하세요.")
-else:
-    st.sidebar.success("✅ AI 모델 연결 완료")
-
-# [게이트웨이]
+# [게이트웨이: 팀 선택/생성]
 if st.session_state.page == 'gate':
     st.title("🔥 Check-Mate")
+    st.caption("AI 기반 멀티 스터디 커뮤니티")
+    
     if st.session_state.my_teams:
-        st.subheader("🏠 참여 중인 팀")
+        st.subheader("🏠 나의 스터디 요새")
         for code, t_name in st.session_state.my_teams.items():
-            col_t, col_b = st.columns([4, 1])
-            with col_t:
-                if st.button(f"🏫 {t_name} ({code})", key=f"go_{code}", use_container_width=True):
-                    st.session_state.invite_code = code
-                    st.session_state.page = 'dashboard'; st.rerun()
-            with col_b:
-                if st.button("❌", key=f"out_{code}"):
-                    del st.session_state.my_teams[code]; st.rerun()
+            if st.button(f"🏫 {t_name} ({code})", key=f"go_{code}", use_container_width=True):
+                st.session_state.invite_code = code
+                st.session_state.page = 'dashboard'; st.rerun()
+    
     st.divider()
     c1, c2 = st.columns(2)
     with c1:
-        if st.button("🆕 팀 생성", use_container_width=True): st.session_state.page = 'create'; st.rerun()
+        if st.button("🆕 팀 생성"):
+            t_n = st.text_input("팀 이름")
+            u_n = st.text_input("닉네임 (생성)")
+            if st.button("생성 확정"):
+                code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+                supabase.table("team").insert({
+                    "invite_code": code, "team_name": t_n,
+                    "members": [{"name": u_n, "status": "✅ 대기"}],
+                    "subjects": {u_n: ["기본 공부"]},
+                    "posts": [] # 게시판 데이터
+                }).execute()
+                st.session_state.my_teams[code] = t_n
+                st.session_state.update({"invite_code": code, "my_name": u_n, "page": "dashboard"}); st.rerun()
     with c2:
-        if st.button("🔗 팀 참여", use_container_width=True): st.session_state.page = 'join'; st.rerun()
+        if st.button("🔗 팀 참여"):
+            code_in = st.text_input("코드 입력")
+            u_n_in = st.text_input("닉네임 (참여)")
+            if st.button("참여 확정"):
+                data = get_team_data(code_in)
+                if data:
+                    m_list = data['members']
+                    m_list.append({"name": u_n_in, "status": "✅ 대기"})
+                    update_db(code_in, "members", m_list)
+                    st.session_state.my_teams[code_in] = data['team_name']
+                    st.session_state.update({"invite_code": code_in, "my_name": u_n_in, "page": "dashboard"}); st.rerun()
 
-# [팀 생성]
-elif st.session_state.page == 'create':
-    st.title("🆕 팀 만들기")
-    t_name = st.text_input("팀 이름")
-    u_name = st.text_input("사용할 닉네임")
-    if st.button("생성 완료"):
-        if t_name and u_name:
-            code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
-            supabase.table("team").insert({
-                "invite_code": code, "team_name": t_name,
-                "members": [{"name": u_name, "status": "✅ 대기 중"}],
-                "subjects": {u_name: ["기본 공부"]}
-            }).execute()
-            st.session_state.my_teams[code] = t_name
-            st.session_state.update({"invite_code": code, "my_name": u_name, "page": "dashboard"})
-            st.rerun()
-
-# [대시보드]
+# [메인 대시보드]
 elif st.session_state.page == 'dashboard':
     st_autorefresh(interval=15000, key="refresh")
     data = get_team_data(st.session_state.invite_code)
     
     if data:
         st.title(f"🏫 {data['team_name']}")
-        st.error(f"📢 초대 코드: {st.session_state.invite_code}")
-        st.sidebar.button("⬅️ 목록으로", on_click=lambda: st.session_state.update({"page": "gate"}))
+        st.sidebar.header(f"👤 {st.session_state.my_name}")
+        menu = st.sidebar.radio("메뉴 선택", ["👥 팀 현황", "📅 AI 일정 플래너", "📋 커뮤니티 게시판", "💡 진로 상담"])
         
-        st.subheader("👥 실시간 현황")
-        cols = st.columns(4)
-        for i, m in enumerate(data['members']):
-            with cols[i % 4]:
-                st.info(f"**{m['name']}**\n{m['status']}")
-        
-        st.divider()
-        my_name = st.session_state.my_name
-        c1, c2 = st.columns(2)
-        with c1:
-            if st.button("🚀 공부 시작", use_container_width=True):
-                update_db_status(st.session_state.invite_code, my_name, "🔥 열공 중"); st.rerun()
-        with c2:
-            if st.button("✅ 휴식하기", use_container_width=True):
-                update_db_status(st.session_state.invite_code, my_name, "✅ 대기 중"); st.rerun()
+        if st.sidebar.button("⬅️ 팀 나가기"): st.session_state.page = 'gate'; st.rerun()
 
-        st.divider()
-        # AI 상담소
-        st.subheader("💡 AI 진로 상담소")
-        career_q = st.text_area("고민 내용을 적어주세요")
-        
-        if st.button("🔮 상담 시작", use_container_width=True):
-            if career_q:
+        # --- 메뉴 1: 실시간 팀 현황 & 과목 관리 ---
+        if menu == "👥 팀 현황":
+            st.subheader("👥 팀원 실시간 상태")
+            m_cols = st.columns(4)
+            for i, m in enumerate(data['members']):
+                with m_cols[i % 4]:
+                    st.info(f"**{m['name']}**\n{m['status']}")
+            
+            st.divider()
+            st.subheader("📚 나의 학습 관리")
+            my_subs = data.get('subjects', {}).get(st.session_state.my_name, ["기본"])
+            tabs = st.tabs(my_subs)
+            for i, tab in enumerate(tabs):
+                with tab:
+                    s_n = my_subs[i]
+                    c1, c2 = st.columns(2)
+                    if c1.button(f"🚀 {s_n} 시작", key=f"s_{s_n}"):
+                        m_list = data['members']
+                        for m in m_list:
+                            if m['name'] == st.session_state.my_name: m['status'] = f"🔥 {s_n} 중"
+                        update_db(st.session_state.invite_code, "members", m_list); st.rerun()
+                    if c2.button(f"🏁 종료", key=f"e_{s_n}"):
+                        m_list = data['members']
+                        for m in m_list:
+                            if m['name'] == st.session_state.my_name: m['status'] = "✅ 대기"
+                        update_db(st.session_state.invite_code, "members", m_list); st.rerun()
+
+        # --- 메뉴 2: AI 일정 플래너 ---
+        elif menu == "📅 AI 일정 플래너":
+            st.subheader("🗓️ AI 맞춤형 학습 계획")
+            todo = st.text_area("오늘 공부해야 할 리스트를 적어주세요.", placeholder="예: 수학 문제집 20p, 영단어 50개, 파이썬 강의 2개")
+            time_limit = st.slider("가용 시간 (시간)", 1, 12, 4)
+            
+            if st.button("🪄 AI 플랜 생성"):
                 if model:
-                    with st.spinner("AI 상담사가 분석 중입니다..."):
-                        try:
-                            resp = model.generate_content(f"커리어 전문가로서 조언해줘: {career_q}")
-                            st.session_state.career_result = resp.text
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"상담 실행 중 에러: {e}")
-                else:
-                    st.error("AI 연결이 되어 있지 않습니다.")
-            else:
-                st.warning("고민 내용을 입력해 주세요.")
+                    with st.spinner("최적의 일정을 계산 중..."):
+                        res = model.generate_content(f"{time_limit}시간 동안 다음 할 일들을 효율적으로 배치한 시간표를 짜줘: {todo}")
+                        st.success("AI 제안 스케줄")
+                        st.write(res.text)
 
-        if st.session_state.career_result:
-            st.success("🤖 AI 상담 결과")
-            st.markdown(st.session_state.career_result)
-            if st.button("결과 닫기"):
-                st.session_state.career_result = None; st.rerun()
+        # --- 메뉴 3: 커뮤니티 게시판 (질문/자유) ---
+        elif menu == "📋 커뮤니티 게시판":
+            st.subheader("📝 우리들의 공간")
+            p_type = st.radio("카테고리", ["❓ 질문 게시판", "☕ 자유 게시판"], horizontal=True)
+            
+            with st.expander("✍️ 글 쓰기"):
+                title = st.text_input("제목")
+                content = st.text_area("내용")
+                if st.button("등록"):
+                    posts = data.get('posts', [])
+                    posts.append({
+                        "type": p_type, "title": title, "content": content,
+                        "author": st.session_state.my_name, "date": datetime.now().strftime("%m/%d %H:%M")
+                    })
+                    update_db(st.session_state.invite_code, "posts", posts); st.rerun()
+            
+            st.divider()
+            posts = data.get('posts', [])[::-1] # 최신순
+            for p in posts:
+                if p['type'] == p_type:
+                    with st.chat_message("user" if p['type']=="❓ 질문 게시판" else "assistant"):
+                        st.write(f"**{p['title']}** (작성자: {p['author']} | {p['date']})")
+                        st.write(p['content'])
+
+        # --- 메뉴 4: AI 진로 상담 ---
+        elif menu == "💡 진로 상담":
+            st.subheader("🔮 AI 커리어 상담소")
+            q = st.text_area("진로나 취업, 공부 방향에 대한 고민을 나눠주세요.")
+            if st.button("상담 받기"):
+                if model:
+                    with st.spinner("답변 생성 중..."):
+                        res = model.generate_content(f"전문 커리어 컨설턴트로서 조언해줘: {q}")
+                        st.info(res.text)
