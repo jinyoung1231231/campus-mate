@@ -5,7 +5,7 @@ import random
 import string
 
 # --- 1. 설정 (본인의 키를 꼭 넣어주세요) ---
-SUPABASE_URL = "https://bpyxibaquftjjzvsoord.supabase.co/rest/v1/"
+SUPABASE_URL = "https://bpyxibaquftjjzvsoord.supabase.co"
 SUPABASE_KEY = "sb_publishable_rNyeIYS4lrfQ9eRhEgCVqw_ATzUoPCS"
 GEMINI_API_KEY = "AIzaSyBIqXd2kYdsPfPER7BJXEreSMQaBX49OyoAIzaSyBIqXd2kYdsPfPER7BJXEreSMQaBX49Oyo"
 
