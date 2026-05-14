@@ -5,43 +5,50 @@ import random
 import string
 from streamlit_autorefresh import st_autorefresh
 
-# --- 1. 보안 설정 및 연결 (404 및 권한 이슈 해결 버전) ---
+# --- 1. 서비스 연결 초기화 ---
 def init_connection():
     try:
-        # Secrets 로드
+        # 1. Secrets 로드 확인
+        if "SUPABASE_URL" not in st.secrets:
+            st.error("Secrets 설정에서 SUPABASE_URL을 찾을 수 없습니다.")
+            st.stop()
+            
         s_url = st.secrets["SUPABASE_URL"]
         s_key = st.secrets["SUPABASE_KEY"]
         g_key = st.secrets["GEMINI_API_KEY"]
         
-        # 1. Supabase 연결
+        # 2. Supabase 연결
         s = create_client(s_url, s_key)
         
-        # 2. Gemini API 설정
+        # 3. Gemini API 설정
         genai.configure(api_key=g_key)
         
-        # 3. 모델 로드 시도 (가장 호환성이 높은 이름들)
+        # 4. 모델 호출 (가장 최신 표준 명칭 사용)
+        # 404 에러를 방지하기 위해 'models/' 접두사를 제거한 이름부터 시도합니다.
         m = None
-        for model_id in ['gemini-1.5-flash', 'gemini-pro', 'models/gemini-1.5-flash']:
+        test_models = ['gemini-1.5-flash', 'gemini-1.5-pro']
+        
+        for model_id in test_models:
             try:
                 temp_model = genai.GenerativeModel(model_id)
-                # 연결 테스트 (실제 호출이 가능한지 확인)
-                temp_model.generate_content("hi", generation_config={"max_output_tokens": 1})
+                # 실제로 작동하는지 최소 토큰으로 테스트
+                temp_model.generate_content("ping", generation_config={"max_output_tokens": 1})
                 m = temp_model
-                break # 성공하면 루프 탈출
+                break
             except Exception as e:
-                # 개별 모델 시도 실패 시 로그 (사용자에게는 숨김)
                 continue
         
-        if m is None:
-            st.error("🚨 모든 Gemini 모델 호출에 실패했습니다. API 키의 활성화 상태를 확인하세요.")
-            
         return s, m
     except Exception as e:
-        st.error(f"🚨 시스템 초기화 에러: {e}")
+        st.error(f"⚠️ 시스템 초기화 중 오류 발생: {e}")
         return None, None
 
-# 앱 시작 시 연결 실행
+# 연결 실행
 supabase, model = init_connection()
+
+# 연결 실패 시 안내 메시지 (상담 버튼 클릭 전 미리 경고)
+if model is None:
+    st.warning("⚠️ 현재 AI 모델과 연결되지 않았습니다. API 키가 정확한지, 혹은 구글 AI 스튜디오에서 키가 활성 상태(Active)인지 확인해 주세요.")
 
 # --- 2. 세션 상태 관리 ---
 if 'page' not in st.session_state:
@@ -53,7 +60,6 @@ if 'my_name' not in st.session_state:
 if 'career_result' not in st.session_state:
     st.session_state.career_result = None
 
-# DB 보조 함수
 def get_team_data(code):
     try:
         res = supabase.table("team").select("*").eq("invite_code", code).execute()
@@ -87,54 +93,37 @@ if st.session_state.page == 'gate':
     st.divider()
     c1, c2 = st.columns(2)
     with c1:
-        if st.button("🆕 팀 생성"): st.session_state.page = 'create'; st.rerun()
+        if st.button("🆕 팀 생성", use_container_width=True): st.session_state.page = 'create'; st.rerun()
     with c2:
-        if st.button("🔗 팀 참여"): st.session_state.page = 'join'; st.rerun()
+        if st.button("🔗 팀 참여", use_container_width=True): st.session_state.page = 'join'; st.rerun()
 
 # [팀 생성]
 elif st.session_state.page == 'create':
-    st.title("🆕 팀 생성")
+    st.title("🆕 팀 만들기")
     t_name = st.text_input("팀 이름")
-    u_name = st.text_input("닉네임")
-    if st.button("완료"):
+    u_name = st.text_input("사용할 닉네임")
+    if st.button("생성 완료"):
         if t_name and u_name:
             code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
             supabase.table("team").insert({
                 "invite_code": code, "team_name": t_name,
-                "members": [{"name": u_name, "status": "✅ 대기"}],
-                "subjects": {u_name: ["공부"]}
+                "members": [{"name": u_name, "status": "✅ 대기 중"}],
+                "subjects": {u_name: ["기본 공부"]}
             }).execute()
             st.session_state.my_teams[code] = t_name
             st.session_state.update({"invite_code": code, "my_name": u_name, "page": "dashboard"})
             st.rerun()
 
-# [참여]
-elif st.session_state.page == 'join':
-    st.title("🔗 팀 참여")
-    code_in = st.text_input("초대 코드").upper()
-    u_name = st.text_input("닉네임")
-    if st.button("입장"):
-        data = get_team_data(code_in)
-        if data:
-            m_list = data['members']
-            if not any(m['name'] == u_name for m in m_list):
-                m_list.append({"name": u_name, "status": "✅ 대기"})
-                supabase.table("team").update({"members": m_list}).eq("invite_code", code_in).execute()
-            st.session_state.my_teams[code_in] = data['team_name']
-            st.session_state.update({"invite_code": code_in, "my_name": u_name, "page": "dashboard"})
-            st.rerun()
-
 # [대시보드]
 elif st.session_state.page == 'dashboard':
-    st_autorefresh(interval=20000, key="refresh") # 갱신 주기를 20초로 늘림
+    st_autorefresh(interval=15000, key="refresh")
     data = get_team_data(st.session_state.invite_code)
     
     if data:
         st.title(f"🏫 {data['team_name']}")
-        st.info(f"초대 코드: {st.session_state.invite_code}")
+        st.error(f"📢 초대 코드: {st.session_state.invite_code}")
         st.sidebar.button("⬅️ 목록으로", on_click=lambda: st.session_state.update({"page": "gate"}))
         
-        # 팀원 현황
         st.subheader("👥 실시간 현황")
         cols = st.columns(4)
         for i, m in enumerate(data['members']):
@@ -142,40 +131,38 @@ elif st.session_state.page == 'dashboard':
                 st.info(f"**{m['name']}**\n{m['status']}")
         
         st.divider()
-        # 공부 상태 변경
         my_name = st.session_state.my_name
         c1, c2 = st.columns(2)
         with c1:
-            if st.button("🔥 열공 시작", use_container_width=True):
+            if st.button("🚀 공부 시작", use_container_width=True):
                 update_db_status(st.session_state.invite_code, my_name, "🔥 열공 중"); st.rerun()
         with c2:
-            if st.button("✅ 휴식/종료", use_container_width=True):
+            if st.button("✅ 휴식하기", use_container_width=True):
                 update_db_status(st.session_state.invite_code, my_name, "✅ 대기 중"); st.rerun()
 
         st.divider()
         # AI 상담소
         st.subheader("💡 AI 진로 상담소")
-        # 폼(form)을 사용하여 버튼 클릭 시에만 AI 호출
-        with st.form("career_form"):
-            career_q = st.text_area("고민 내용을 적어주세요")
-            submit = st.form_submit_button("🔮 상담 시작")
-            
-            if submit:
-                if career_q:
-                    if model:
-                        with st.spinner("AI 상담사가 분석 중..."):
-                            try:
-                                resp = model.generate_content(f"커리어 상담가로서 다음 질문에 답해줘: {career_q}")
-                                st.session_state.career_result = resp.text
-                            except Exception as e:
-                                st.error(f"상담 중 오류: {e}")
-                    else:
-                        st.error("AI 모델이 연결되지 않았습니다. API 키를 다시 확인해 주세요.")
+        career_q = st.text_area("고민 내용을 적어주세요 (예: 비전공자 개발자 취업 고민)")
+        
+        if st.button("🔮 상담 시작", use_container_width=True):
+            if career_q:
+                if model:
+                    with st.spinner("AI 상담사가 분석 중입니다..."):
+                        try:
+                            # 1.5-flash 모델로 상담 실행
+                            resp = model.generate_content(f"커리어 전문가로서 조언해줘: {career_q}")
+                            st.session_state.career_result = resp.text
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"상담 중 오류가 발생했습니다: {e}")
                 else:
-                    st.warning("내용을 입력해 주세요.")
+                    st.error("AI 모델이 연결되지 않아 상담을 진행할 수 없습니다. 상단의 경고 메시지를 확인하세요.")
+            else:
+                st.warning("고민 내용을 입력해 주세요.")
 
         if st.session_state.career_result:
-            st.success("🤖 AI 상담 결과")
-            st.write(st.session_state.career_result)
+            st.success("🤖 AI 상담사 결과")
+            st.markdown(st.session_state.career_result)
             if st.button("결과 닫기"):
                 st.session_state.career_result = None; st.rerun()
