@@ -34,6 +34,7 @@ supabase, model = init_connection()
 if 'page' not in st.session_state: st.session_state.page = 'gate'
 if 'my_teams' not in st.session_state: st.session_state.my_teams = {}
 if 'my_name' not in st.session_state: st.session_state.my_name = ""
+if 'career_result' not in st.session_state: st.session_state.career_result = None
 
 def get_team_data(code):
     try:
@@ -162,9 +163,28 @@ elif st.session_state.page == 'dashboard':
 
         # 4. 상담소
         elif menu == "💡 상담소":
-            st.title("💡 진로 상담")
-            q = st.text_area("고민")
-            if st.button("상담 시작") and model:
-                with st.spinner("상담 중..."):
-                    res = model.generate_content(f"조언해줘: {q}")
-                    st.info(res.text)
+            st.title("💡 AI 진로 상담")
+            q = st.text_area("고민 내용을 적어주세요")
+            
+            # [수정된 상담 로직] 세션 상태를 활용하여 끊김 방지
+            if st.button("🔮 상담 시작", use_container_width=True):
+                if q:
+                    if model:
+                        with st.spinner("AI 상담사가 분석 중입니다..."):
+                            try:
+                                resp = model.generate_content(f"커리어 전문가로서 조언해줘: {q}")
+                                st.session_state.career_result = resp.text
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"상담 실행 중 에러: {e}")
+                    else:
+                        st.error("AI 모델 연결 실패")
+                else:
+                    st.warning("내용을 입력하세요")
+
+            if st.session_state.career_result:
+                st.success("🤖 AI 상담 결과")
+                st.markdown(st.session_state.career_result)
+                if st.button("결과 닫기"):
+                    st.session_state.career_result = None
+                    st.rerun()
