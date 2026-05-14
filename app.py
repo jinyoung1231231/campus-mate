@@ -5,6 +5,8 @@ import random
 import string
 from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
+from PyPDF2 import PdfReader # PDF 읽기용 라이브러리
+import io
 
 # --- 1. 서비스 연결 초기화 ---
 def init_connection():
@@ -30,12 +32,29 @@ def init_connection():
 
 supabase, model = init_connection()
 
-# --- 2. 세션 상태 관리 ---
+# --- 2. 데이터 추출 보조 함수 (PDF/TXT 대응) ---
+def extract_text(uploaded_file):
+    text = ""
+    try:
+        if uploaded_file.type == "application/pdf":
+            # PDF 읽기 로직
+            pdf_reader = PdfReader(uploaded_file)
+            for page in pdf_reader.pages:
+                text += page.extract_text()
+        elif uploaded_file.type == "text/plain":
+            # TXT 읽기 로직
+            text = uploaded_file.getvalue().decode("utf-8")
+    except Exception as e:
+        st.error(f"파일 읽기 중 오류: {e}")
+    return text
+
+# --- 3. 세션 상태 관리 ---
 if 'page' not in st.session_state: st.session_state.page = 'gate'
 if 'my_teams' not in st.session_state: st.session_state.my_teams = {}
 if 'my_name' not in st.session_state: st.session_state.my_name = ""
 if 'ai_ans' not in st.session_state: st.session_state.ai_ans = "" 
 
+# Supabase 업데이트 유틸
 def get_team_data(code):
     try:
         res = supabase.table("team").select("*").eq("invite_code", code).execute()
@@ -45,9 +64,9 @@ def get_team_data(code):
 def update_db(code, column, value):
     try:
         supabase.table("team").update({column: value}).eq("invite_code", code).execute()
-    except Exception as e: st.error(f"DB 오류: {e}")
+    except: pass
 
-# --- 3. UI 로직 ---
+# --- 4. UI 로직 ---
 
 if st.session_state.page == 'gate':
     st.title("🔥 Check-Mate")
@@ -60,8 +79,8 @@ if st.session_state.page == 'gate':
     c1, c2 = st.columns(2)
     with c1:
         st.subheader("🆕 팀 생성")
-        tn = st.text_input("팀 이름")
-        un = st.text_input("닉네임")
+        tn = st.text_input("팀 이름", key="tn")
+        un = st.text_input("닉네임", key="un")
         if st.button("방 만들기"):
             if tn and un:
                 code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
@@ -70,8 +89,8 @@ if st.session_state.page == 'gate':
                 st.session_state.update({"invite_code": code, "my_name": un, "page": "dashboard"}); st.rerun()
     with c2:
         st.subheader("🔗 참여")
-        ci = st.text_input("코드")
-        ui = st.text_input("닉네임")
+        ci = st.text_input("코드", key="ci")
+        ui = st.text_input("닉네임", key="ui")
         if st.button("참여하기"):
             data = get_team_data(ci)
             if data:
@@ -92,7 +111,7 @@ elif st.session_state.page == 'dashboard':
         st.sidebar.title(f"🏫 {data['team_name']}")
         menu = st.sidebar.radio("메뉴", ["📚 학습 & AI 도구", "📋 커뮤니티", "💡 진로상담"])
         
-        st.sidebar.subheader("👥 팀원 현황")
+        st.sidebar.subheader("👥 팀원 실시간 현황")
         for m in data.get('members', []):
             st.sidebar.write(f"{'🔥' if '중' in m['status'] else '✅'} {m['name']}: {m['status']}")
         
@@ -115,25 +134,17 @@ elif st.session_state.page == 'dashboard':
 
                 if my_subs:
                     sel_sub = st.selectbox("현재 과목", [s['name'] for s in my_subs])
-                    up_file = st.file_uploader("자료 업로드 (TXT만 가능, PDF는 텍스트 복사후 TXT저장 권장)", type=['txt'])
+                    # PDF와 TXT 모두 허용!
+                    up_file = st.file_uploader("자료 업로드 (PDF 또는 TXT)", type=['pdf', 'txt'])
                     
-                    # --- [중요] 파일 읽기 로직 수정 ---
-                    file_text = ""
-                    if up_file:
-                        try:
-                            # getvalue()로 파일 데이터를 직접 가져와서 디코딩
-                            file_text = up_file.getvalue().decode("utf-8")
-                        except Exception as e:
-                            st.error("파일을 읽는 중 오류가 발생했습니다. 인코딩을 확인해주세요.")
-
                     if st.button("🗓️ 이 자료로 일정 짜줘"):
-                        if file_text and model:
-                            with st.spinner("AI 분석 중..."):
-                                res = model.generate_content(f"다음 학습 자료를 바탕으로 주간 일정을 짜줘:\n{file_text[:3000]}")
+                        if up_file and model:
+                            with st.spinner("AI가 파일을 정독 중입니다..."):
+                                content = extract_text(up_file)
+                                res = model.generate_content(f"다음 학습 자료를 분석해서 최적의 일정을 짜줘:\n{content[:4000]}")
                                 st.session_state.ai_ans = res.text
                                 st.rerun()
-                        else:
-                            st.warning("분석할 파일 내용이 없습니다.")
+                        else: st.warning("파일을 먼저 업로드해 주세요.")
 
                     st.divider()
                     c1, c2 = st.columns(2)
@@ -150,12 +161,12 @@ elif st.session_state.page == 'dashboard':
                                 if m['name'] == my_name: m['status'] = "✅ 대기"
                             update_db(st.session_state.invite_code, "members", ml)
                             
-                            if file_text and model:
-                                with st.spinner("퀴즈 생성 중..."):
-                                    res = model.generate_content(f"이 내용에서 퀴즈 3개 내줘(정답 포함):\n{file_text[:3000]}")
+                            if up_file and model:
+                                with st.spinner("마무리 퀴즈 생성 중..."):
+                                    content = extract_text(up_file)
+                                    res = model.generate_content(f"이 내용에서 핵심 퀴즈 3개만 내줘:\n{content[:4000]}")
                                     st.session_state.ai_ans = res.text
-                            else:
-                                st.session_state.ai_ans = "파일 내용이 없어 퀴즈를 낼 수 없습니다."
+                            else: st.session_state.ai_ans = "자료가 없어 퀴즈를 생성하지 못했습니다."
                             st.rerun()
 
             elif menu == "📋 커뮤니티":
@@ -175,7 +186,7 @@ elif st.session_state.page == 'dashboard':
                 q = st.text_area("고민 입력")
                 if st.button("상담 시작"):
                     if q and model:
-                        with st.spinner("상담 중..."):
+                        with st.spinner("AI 상담사 답변 중..."):
                             res = model.generate_content(f"조언해줘: {q}")
                             st.session_state.ai_ans = res.text
                             st.rerun()
@@ -184,9 +195,8 @@ elif st.session_state.page == 'dashboard':
             st.header("🤖 AI Response")
             st.markdown("---")
             if st.session_state.ai_ans:
-                st.success("AI 답변")
                 st.write(st.session_state.ai_ans)
-                if st.button("지우기"):
+                if st.button("결과 지우기"):
                     st.session_state.ai_ans = ""; st.rerun()
             else:
-                st.info("결과 대기 중...")
+                st.info("여기에 AI 분석 결과가 표시됩니다.")
