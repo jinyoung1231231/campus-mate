@@ -8,7 +8,7 @@ from streamlit_autorefresh import st_autorefresh
 from PyPDF2 import PdfReader
 import io
 
-# --- 1. 서비스 연결 및 AI 초기화 (연결 불안정 완전 해결 버전) ---
+# --- 1. 서비스 연결 및 AI 초기화 (404/NotFound 완전 해결) ---
 @st.cache_resource
 def init_connection():
     try:
@@ -19,19 +19,17 @@ def init_connection():
         # Supabase 연결
         s = create_client(s_url, s_key)
         
-        # [핵심] Gemini 설정 및 모델 탐색 (v1/v1beta 호환)
+        # Gemini 설정
         genai.configure(api_key=g_key)
         
+        # [핵심] 가장 범용적인 모델명부터 시도하며 '진짜' 연결되는지 확인
         selected_model = None
-        # 현재 가장 응답률이 높은 모델 명칭 순서대로 시도
-        model_candidates = ['gemini-1.5-flash', 'gemini-pro', 'models/gemini-1.5-flash']
-        
-        for m_name in model_candidates:
+        for model_name in ['gemini-1.5-flash', 'models/gemini-1.5-flash', 'gemini-pro']:
             try:
-                temp_model = genai.GenerativeModel(m_name)
-                # 실제로 핑(Ping)을 날려 연결 확인
-                temp_model.generate_content("hi", generation_config={"max_output_tokens": 1})
-                selected_model = temp_model
+                m = genai.GenerativeModel(model_name)
+                # 실제로 핑을 날려 응답이 오는지 확인
+                m.generate_content("hi", generation_config={"max_output_tokens": 1})
+                selected_model = m
                 break
             except Exception:
                 continue
@@ -50,7 +48,7 @@ if 'my_name' not in st.session_state: st.session_state.my_name = ""
 if 'ai_ans' not in st.session_state: st.session_state.ai_ans = ""
 if 'file_content' not in st.session_state: st.session_state.file_content = ""
 
-# --- 3. 핵심 유틸리티 ---
+# --- 3. 핵심 기능 함수 ---
 def extract_text(uploaded_file):
     try:
         if uploaded_file.type == "application/pdf":
@@ -60,34 +58,34 @@ def extract_text(uploaded_file):
     except: return ""
 
 def run_ai(prompt_type, **kwargs):
-    """AI 호출 시 에러가 나면 화면에 즉시 표시하도록 개선"""
     if not model:
-        st.session_state.ai_ans = "🚨 AI 모델을 초기화할 수 없습니다. API 키와 모델 지원 여부를 확인하세요."
+        st.error("🤖 AI 모델이 연결되지 않았습니다. API 키나 모델 명칭을 다시 확인해주세요.")
         return
     
     with st.spinner("AI가 분석 중입니다..."):
         try:
             if prompt_type == "plan":
-                p = f"목표:{kwargs['grade']}, 기간:{kwargs['days']}일. 다음 자료를 분석해 일정을 짜줘: {st.session_state.file_content[:4000]}"
+                p = f"성적목표:{kwargs['grade']}, 기간:{kwargs['days']}일. 다음 자료를 분석해 일정을 짜줘: {st.session_state.file_content[:4000]}"
             elif prompt_type == "quiz":
                 p = f"다음 자료 기반 퀴즈 3개와 정답: {st.session_state.file_content[:4000]}"
             elif prompt_type == "consult":
-                p = f"고민상담 조언: {kwargs['q']}"
+                p = f"상담 답변 요청: {kwargs['q']}"
             
             res = model.generate_content(p)
             st.session_state.ai_ans = res.text
+            st.rerun() # 답변이 나오면 즉시 화면 갱신
         except Exception as e:
-            st.session_state.ai_ans = f"❌ AI 작동 오류: {str(e)}"
+            st.error(f"❌ AI 작동 오류: {str(e)}")
 
-# --- 4. 메인 로직 ---
+# --- 4. 메인 UI ---
 
 if st.session_state.page == 'gate':
     st.title("🔥 Check-Mate")
     c1, c2 = st.columns(2)
     with c1:
         st.subheader("🆕 팀 생성")
-        tn = st.text_input("팀 이름")
-        un = st.text_input("내 닉네임")
+        tn = st.text_input("팀 이름", key="gate_tn")
+        un = st.text_input("내 닉네임", key="gate_un")
         if st.button("팀 만들기"):
             code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
             supabase.table("team").insert({
@@ -98,8 +96,8 @@ if st.session_state.page == 'gate':
             st.session_state.update({"invite_code": code, "my_name": un, "page": "dashboard"}); st.rerun()
     with c2:
         st.subheader("🔗 팀 참여")
-        ci = st.text_input("초대 코드")
-        ui = st.text_input("내 닉네임 ")
+        ci = st.text_input("초대 코드", key="gate_ci")
+        ui = st.text_input("내 닉네임 ", key="gate_ui")
         if st.button("참여하기"):
             res = supabase.table("team").select("*").eq("invite_code", ci).execute()
             if res.data:
@@ -116,7 +114,7 @@ elif st.session_state.page == 'dashboard':
     data = res.data[0] if res.data else None
     
     if data:
-        # [기능 1] 초대 코드 상시 노출
+        # [기능] 초대 코드 상시 노출
         st.sidebar.success(f"🎫 초대 코드: **{data['invite_code']}**")
         st.sidebar.title(f"🏫 {data['team_name']}")
         
@@ -139,7 +137,7 @@ elif st.session_state.page == 'dashboard':
                         st.rerun()
 
                 if my_subs:
-                    sel_sub = st.selectbox("현재 타겟 과목", [s['name'] for s in my_subs])
+                    sel_sub = st.selectbox("현재 과목 선택", [s['name'] for s in my_subs])
                     up_file = st.file_uploader("자료 업로드(PDF/TXT)", type=['pdf', 'txt'])
                     if up_file:
                         st.session_state.file_content = extract_text(up_file)
@@ -152,13 +150,14 @@ elif st.session_state.page == 'dashboard':
                     
                     if st.button("🪄 AI 맞춤 일정 생성", use_container_width=True):
                         if st.session_state.file_content:
+                            # DB에 나의 목표 상태 공유
                             ml = data['members']
                             for m in ml:
                                 if m['name'] == st.session_state.my_name:
                                     m['grade'] = grade; m['days'] = f"{days}일"
                             supabase.table("team").update({"members": ml}).eq("invite_code", st.session_state.invite_code).execute()
                             run_ai("plan", grade=grade, days=days)
-                            st.rerun()
+                        else: st.warning("파일을 먼저 올려주세요.")
 
                     st.divider()
                     c1, c2 = st.columns(2)
@@ -178,7 +177,6 @@ elif st.session_state.page == 'dashboard':
                             if st.session_state.file_content: run_ai("quiz")
                             st.rerun()
 
-            # [기능 2] 팀원 과목 상세 현황
             elif menu == "👥 팀원 과목 상세":
                 st.header("👥 팀원별 상세 과목 리스트")
                 for m in data['members']:
@@ -190,7 +188,7 @@ elif st.session_state.page == 'dashboard':
                         f_subs = data['subjects'].get(m['name'], [])
                         if f_subs:
                             for i, s in enumerate(f_subs):
-                                st.code(f"{i+1}. {s['name']}", language="text")
+                                st.info(f"{i+1}. {s['name']}")
                         else:
                             st.write("등록된 과목이 없습니다.")
 
@@ -209,14 +207,15 @@ elif st.session_state.page == 'dashboard':
                 st.header("💡 AI 상담소")
                 q = st.text_area("고민 내용을 입력하세요.")
                 if st.button("🔮 상담 시작"):
-                    if q: run_ai("consult", q=q); st.rerun()
+                    if q: run_ai("consult", q=q)
 
         with col_ai:
             st.header("🤖 AI Response")
             st.markdown("---")
             if st.session_state.ai_ans:
                 st.markdown(st.session_state.ai_ans)
-                if st.button("🧹 지우기"):
-                    st.session_state.ai_ans = ""; st.rerun()
+                if st.button("🧹 결과 지우기"):
+                    st.session_state.ai_ans = ""
+                    st.rerun()
             else:
-                st.info("결과가 여기에 표시됩니다.")
+                st.info("AI의 학습 플랜, 퀴즈 결과가 여기에 표시됩니다.")
