@@ -8,7 +8,7 @@ import time
 from streamlit_autorefresh import st_autorefresh
 from PyPDF2 import PdfReader
 
-# 1. 스타일 리뉴얼 (CSS 주입 - 에러 수정 완료)
+# 1. 스타일 리뉴얼 (CSS 주입)
 st.markdown("""
 <style>
     /* 전체 앱 배경 및 기본 글꼴 부드럽게 */
@@ -222,7 +222,6 @@ elif st.session_state.page == 'dashboard':
                 st.header("내 공부 콘솔")
                 my_subs = data['subjects'].get(st.session_state.my_name, [])
                 
-                # 리뉴얼된 디지털 타이머 디자인 UI 적용
                 if st.session_state.timer_running:
                     current_elapsed = int(time.time() - st.session_state.start_time) + st.session_state.elapsed_time
                     h = current_elapsed // 3600; m = (current_elapsed % 3600) // 60; s = current_elapsed % 60
@@ -300,4 +299,75 @@ elif st.session_state.page == 'dashboard':
                             supabase.table("team").update({"members": ml}).eq("invite_code", st.session_state.invite_code).execute()
                             
                             target_user_grade = next((m_block.get('grade', 'B+') for m_block in data['members'] if m_block['name'] == st.session_state.my_name), 'B+')
-                            run_ai_engine("quiz", grade=target_user_grade, content=combined_content if combined_
+                            run_ai_engine("quiz", grade=target_user_grade, content=combined_content if combined_content else "기본 학습 개념")
+
+            elif menu == "팀원 상세 과목":
+                st.header("팀원별 학습 현황")
+                for m_block in data['members']:
+                    with st.expander(f"{m_block['name']} 님"):
+                        st.write(f"현재 상태: {m_block['status']}")
+                        st.write(f"목표 성적: {m_block.get('grade', '-')} | 설정 기간: {m_block.get('days', '-')}")
+                        st.write(f"오늘 누적 공부 시간: {m_block.get('total_time', 0)} 분")
+                        st.write("등록된 모든 과목 목록")
+                        f_subs = data['subjects'].get(m_block['name'], [])
+                        for s in f_subs: st.info(s['name'])
+
+            elif menu == "게시판":
+                st.header("팀 공유 게시판")
+                with st.form("b_form"):
+                    t, c = st.text_input("글 제목"), st.text_area("글 내용")
+                    if st.form_submit_button("게시글 등록"):
+                        ps = data['posts']; ps.append({"title": t, "content": c, "author": st.session_state.my_name})
+                        supabase.table("team").update({"posts": ps}).eq("invite_code", st.session_state.invite_code).execute()
+                        st.rerun()
+                
+                for idx, p in enumerate(reversed(data['posts'])):
+                    real_idx = len(data['posts']) - 1 - idx
+                    with st.expander(f"{p['title']} - 작성자: {p['author']}"):
+                        st.write(p['content'])
+                        if p['author'] == st.session_state.my_name:
+                            if st.button("🗑️ 이 게시글 삭제", key=f"del_{real_idx}"):
+                                current_posts = data['posts']
+                                current_posts.pop(real_idx)
+                                supabase.table("team").update({"posts": current_posts}).eq("invite_code", st.session_state.invite_code).execute()
+                                st.rerun()
+
+            elif menu == "AI 상담소":
+                st.header("AI 1:1 상담소")
+                user_query = st.text_area("학업 고민이나 슬럼프에 대해 자유롭게 적어주세요.", height=150)
+                if st.button("멘토에게 조언 구하기", type="primary"):
+                    if user_query:
+                        run_ai_engine("consult", q=user_query)
+
+        # 우측 결과단 영역
+        with col_r:
+            if menu in ["내 학습 & AI", "팀원 상세 과목", "게시판"]:
+                st.header("🤖 AI 학습 일정 검증 센터")
+                st.divider()
+                
+                if st.session_state.current_ai_plan:
+                    st.write("📋 **나의 맞춤형 일차별 계획**")
+                    
+                    lines = st.session_state.current_ai_plan.split('\n')
+                    for line in lines:
+                        if not line.strip(): continue
+                        
+                        if menu == "내 학습 & AI" and selected_day in line:
+                            st.markdown(f"""<div class='active-plan-card'>{line}</div>""", unsafe_allow_html=True)
+                        else:
+                            st.markdown(f"""<div class='plan-card'>{line}</div>""", unsafe_allowed_html=False)
+                else:
+                    st.info("좌측 콘솔에서 자료 입력 후 AI 맞춤 일정을 생성하면 여기에 영구 보존됩니다.")
+                
+                if st.session_state.current_ai_quiz:
+                    st.divider()
+                    st.subheader("📝 목표 성적 맞춤형 실전 검증 퀴즈")
+                    st.write(st.session_state.current_ai_quiz)
+
+            elif menu == "AI 상담소":
+                st.header("🔮 AI 마인드셋 상담 피드백")
+                st.divider()
+                if st.session_state.current_ai_consult:
+                    st.write(st.session_state.current_ai_consult)
+                else:
+                    st.info("좌측 상담소에 고민을 입력하시면 AI 멘토의 따뜻한 1:1 솔루션이 이곳에 단독으로 제공됩니다.")
