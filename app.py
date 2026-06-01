@@ -8,14 +8,12 @@ import time
 from streamlit_autorefresh import st_autorefresh
 from PyPDF2 import PdfReader
 
-# 1. 스타일 리뉴얼 (CSS 주입)
+# 1. 스타일 리뉴얼 (CSS 주입 - 마크다운 허용 옵션 완벽 수정)
 st.markdown("""
 <style>
-    /* 전체 앱 배경 및 기본 글꼴 부드럽게 */
     .stApp {
         background-color: #f8f9fa;
     }
-    /* 타이머 카드 디자인 */
     .timer-container {
         background: linear-gradient(135deg, #1e3a8a, #3b82f6);
         color: white;
@@ -25,7 +23,6 @@ st.markdown("""
         text-align: center;
         margin-bottom: 20px;
     }
-    /* 일반 일정 카드 디자인 */
     .plan-card {
         background-color: white;
         border-left: 5px solid #cbd5e1;
@@ -35,7 +32,6 @@ st.markdown("""
         margin-bottom: 12px;
         color: #334155;
     }
-    /* 현재 진행 중인 하이라이트 일정 카드 디자인 */
     .active-plan-card {
         background-color: #fff7ed;
         border-left: 5px solid #f97316;
@@ -55,7 +51,7 @@ def init_db():
 
 supabase = init_db()
 
-# 3. 세션 상태 관리 (입력 데이터 휘발 방지 로직)
+# 3. 세션 상태 관리 (AI 인풋 및 렌더링 버그 원천 차단)
 session_keys = {
     'page': 'gate',
     'my_name': '',
@@ -194,7 +190,7 @@ elif st.session_state.page == 'dashboard':
     if not st.session_state.invite_code: 
         st.session_state.page = 'gate'; st.rerun()
 
-    # 실시간 화면 동기화 및 타이머 갱신 (2초)
+    # 실시간 대시보드 동기화 (2초 간격)
     st_autorefresh(interval=2000, key="global_refresh")
     
     res = supabase.table("team").select("*").eq("invite_code", st.session_state.invite_code).execute()
@@ -339,7 +335,7 @@ elif st.session_state.page == 'dashboard':
                     if user_query:
                         run_ai_engine("consult", q=user_query)
 
-        # 우측 결과단 영역
+        # 우측 결과단 영역 (버그 원인 제거)
         with col_r:
             if menu in ["내 학습 & AI", "팀원 상세 과목", "게시판"]:
                 st.header("🤖 AI 학습 일정 검증 센터")
@@ -355,7 +351,8 @@ elif st.session_state.page == 'dashboard':
                         if menu == "내 학습 & AI" and selected_day in line:
                             st.markdown(f"""<div class='active-plan-card'>{line}</div>""", unsafe_allow_html=True)
                         else:
-                            st.markdown(f"""<div class='plan-card'>{line}</div>""", unsafe_allowed_html=False)
+                            # [버그 수정 완료] 마크다운 허용 옵션명을 오타 없이 수정했습니다.
+                            st.markdown(f"""<div class='plan-card'>{line}</div>""", unsafe_allow_html=True)
                 else:
                     st.info("좌측 콘솔에서 자료 입력 후 AI 맞춤 일정을 생성하면 여기에 영구 보존됩니다.")
                 
