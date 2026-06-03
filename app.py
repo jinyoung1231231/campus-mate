@@ -90,7 +90,7 @@ st.markdown("""
         font-size: 36px;
         font-weight: 700;
         font-family: monospace;
-        color: #e03131; /* 경고 레드 컬러 */
+        color: #e03131; /* 경고 Redmond 컬러 */
     }
 
     /* OMR 카드 디자인 */
@@ -117,28 +117,20 @@ def init_db():
 
 supabase = init_db()
 
-# 3. 세션 상태 고도화 (멀티 과목 구조, 진행도 정보, 몰입/시험 모드 플래그 일괄 관리)
+# 3. 세션 상태 관리
 session_keys = {
     'page': 'gate',
     'my_name': '',
     'invite_code': '',
-    
-    # 공부 프로세스 제어 상태
-    'current_mode': 'dashboard', # 'dashboard', 'focus', 'test', 'result'
-    'active_subject': '',        # 현재 선택한 공부 과목명
-    'active_day': 1,             # 현재 선택한 목표 일차
-    
-    # 타이머 엔진 상태
+    'current_mode': 'dashboard', 
+    'active_subject': '',        
+    'active_day': 1,             
     'timer_running': False,
     'start_time': None,
     'elapsed_time': 0,
-    
-    # 시험 엔진 상태
     'test_start_time': None,
-    'test_limit_seconds': 600,   # 시험 제한 시간 (10분)
-    'user_answers': {},          # 사용자가 OMR에 입력한 답안 저장소
-    
-    # AI 융합 데이터 상태
+    'test_limit_seconds': 600,   
+    'user_answers': {},          
     'current_ai_plan': '',
     'current_ai_quiz': '',
     'current_ai_consult': '',
@@ -290,7 +282,7 @@ elif st.session_state.page == 'dashboard':
         if st.session_state.current_mode == 'dashboard':
             menu = st.sidebar.radio("내비게이션", [" 내 학습 보드 (메인)", "👥 팀원 실시간 페이스", " 공유 게시판", " AI 마인드셋 상담"])
         else:
-            st.sidebar.warning("⚠️ 현재 공부/시험이 진행 중입니다. 몰입을 위해 메뉴 이동이 제한됩니다.")
+            st.sidebar.warning("⚠️ 현재 공부/시험이 진행 중입니다. 메뉴 이동이 제한됩니다.")
             menu = " 내 학습 보드 (메인)"
             
         if st.sidebar.button("🚪 워크스페이스 로그아웃"):
@@ -317,16 +309,13 @@ elif st.session_state.page == 'dashboard':
                     for idx, sub in enumerate(my_subs):
                         col_target = cols[idx % 3]
                         with col_target:
-                            # 세션이나 DB에 누적된 Day 데이터 매핑 (기본값 설정)
                             sub_name = sub['name']
                             total_days = sub.get('total_days', 7)
                             current_day = sub.get('current_day', 1)
                             
-                            # 선형 진행 바 시각화 계산
                             progress_ratio = min(current_day / total_days, 1.0)
                             progress_percent = int(progress_ratio * 100)
                             
-                            # 과목 카드 렌더링
                             st.markdown(f"""
                             <div class='subject-card'>
                                 <div class='subject-title'>📚 {sub_name}</div>
@@ -340,7 +329,6 @@ elif st.session_state.page == 'dashboard':
 
                 st.divider()
 
-                # 과목 추가 및 AI 설정 단락 (가독성을 위한 레이아웃 정리)
                 c_left, c_right = st.columns([1, 1])
                 with c_left:
                     st.markdown("#### ➕ 신규 과목 및 AI 학습 설계")
@@ -369,7 +357,6 @@ elif st.session_state.page == 'dashboard':
                         
                         if st.button("🤖 AI 맞춤형 일차별 계획 설계", type="primary", use_container_width=True):
                             if combined_content:
-                                # 해당 과목의 기간 정보 데이터 업데이트 반영
                                 for s in my_subs:
                                     if s['name'] == target_sub:
                                         s['total_days'] = days
@@ -385,7 +372,6 @@ elif st.session_state.page == 'dashboard':
                             else:
                                 st.warning("일정을 설계할 텍스트 본문이나 지시사항을 채워넣어 주세요.")
 
-                # [하단 배치] 오늘 집중할 단 하나의 과목을 골라 몰입 모드로 진입하는 런처 영역
                 if my_subs:
                     st.divider()
                     st.markdown("### 🚀 오늘자 미션 집중 포화 및 몰입 런처")
@@ -394,7 +380,6 @@ elif st.session_state.page == 'dashboard':
                     with cl1:
                         selected_sub_to_study = st.selectbox("오늘 완전히 몰입하여 파괴할 과목 고르기", [s['name'] for s in my_subs], key="study_selector")
                     
-                    # 선택 과목의 현재 진행 Day 조회
                     matched_sub = next((s for s in my_subs if s['name'] == selected_sub_to_study), my_subs[0])
                     current_sub_day = matched_sub.get('current_day', 1)
                     max_sub_day = matched_sub.get('total_days', 7)
@@ -410,11 +395,9 @@ elif st.session_state.page == 'dashboard':
                             st.session_state.active_day = chosen_day
                             st.session_state.current_mode = 'focus'
                             
-                            # 공부 타이머 작동 엔진 온
                             st.session_state.timer_running = True
                             st.session_state.start_time = time.time()
                             
-                            # 실시간 팀 공유 원격 상태값 업데이트 동기화
                             ml = data['members']
                             for m_block in ml:
                                 if m_block['name'] == st.session_state.my_name: 
@@ -422,7 +405,6 @@ elif st.session_state.page == 'dashboard':
                             supabase.table("team").update({"members": ml}).eq("invite_code", st.session_state.invite_code).execute()
                             st.rerun()
 
-                # AI 결과 가이드 센터 하단 백업 렌더링
                 if st.session_state.current_ai_plan:
                     st.divider()
                     st.markdown("#### 📋 현재 활성화된 AI 타겟 계획서 아카이브")
@@ -433,10 +415,17 @@ elif st.session_state.page == 'dashboard':
                 st.markdown("<div class='notion-header'>👥 스터디 팀원 실시간 러닝 페이스</div>", unsafe_allow_html=True)
                 st.markdown("<div class='notion-sub'>함께 몰입하는 팀원들의 현재 모드, 학습 상태 및 오늘 누적 공부 시간을 실시간으로 공유합니다.</div>", unsafe_allow_html=True)
                 
+                # 방을 만든 사람(방장)은 members 리스트의 0번째 인덱스 유저로 고정 식별
+                room_owner = data['members'][0]['name'] if data['members'] else ""
+                is_i_am_owner = (st.session_state.my_name == room_owner)
+                
                 for idx_m, m_block in enumerate(data['members']):
+                    # 방장 표시 배지 부여
+                    owner_badge = "👑 방장" if m_block['name'] == room_owner else "👤 팀원"
+                    
                     st.markdown(f"""
                     <div class='subject-card' style='border-left: 4px solid #238387;'>
-                        <span style='font-size:16px; font-weight:700;'>👤 {m_block['name']} 팀원</span> | 
+                        <span style='font-size:16px; font-weight:700;'>{owner_badge} : {m_block['name']}님</span> | 
                         <span style='color:#238387; font-weight:600;'>현재 상태: {m_block['status']}</span>
                         <div style='margin-top:8px; font-size:13px; color:#7c7b77;'>
                             🎯 목표 레벨: {m_block.get('grade', '-')} | 설정 기간: {m_block.get('days', '-')} | ⏱️ 오늘 누적 집중 시간: <b>{m_block.get('total_time', 0)}분</b>
@@ -444,26 +433,30 @@ elif st.session_state.page == 'dashboard':
                     </div>
                     """, unsafe_allow_html=True)
                     
-                    # 팀 관리자 권한 및 멤버 내보내기 삭제 버튼 추가 (수파베이스 리스트 슬라이싱 연동)
-                    if m_block['name'] != st.session_state.my_name:
-                        if st.button(f"🗑️ {m_block['name']} 팀원 내보내기", key=f"kick_{idx_m}"):
-                            current_members = data['members']
-                            current_members.pop(idx_m)
-                            
-                            # 서브 과목과 일정 보드 맵에서도 해당 데이터 정리
-                            current_subjects = data['subjects']
-                            if m_block['name'] in current_subjects: current_subjects.pop(m_block['name'])
-                            current_ai_plans = data.get('ai_plans', {}) or {}
-                            if m_block['name'] in current_ai_plans: current_ai_plans.pop(m_block['name'])
-                            
-                            supabase.table("team").update({
-                                "members": current_members, 
-                                "subjects": current_subjects, 
-                                "ai_plans": current_ai_plans
-                            }).eq("invite_code", st.session_state.invite_code).execute()
-                            st.rerun()
+                    # [버그 완전 수정 및 방장 전용 권한 부여]
+                    # 내가 방장이고, 타겟팅된 카드가 본인 카드가 아닐 때만 '내보내기' 제어창을 가동합니다.
+                    if is_i_am_owner and m_block['name'] != st.session_state.my_name:
+                        # 리스트 루프 터짐을 막기 위해 고유 닉네임을 파라미터로 넘기는 전용 버튼 구현
+                        if st.button(f"🗑️ {m_block['name']} 강제 내보내기", key=f"kick_btn_{m_block['name']}"):
+                            # 실시간으로 새롭게 변동 데이터를 조회하여 동기화 버그 원천 차단
+                            fresh_res = supabase.table("team").select("members, subjects, ai_plans").eq("invite_code", st.session_state.invite_code).execute()
+                            if fresh_res.data:
+                                f_data = fresh_res.data[0]
+                                updated_members = [m for m in f_data['members'] if m['name'] != m_block['name']]
+                                
+                                updated_subjects = f_data.get('subjects', {}) or {}
+                                if m_block['name'] in updated_subjects: updated_subjects.pop(m_block['name'])
+                                
+                                updated_ai_plans = f_data.get('ai_plans', {}) or {}
+                                if m_block['name'] in updated_ai_plans: updated_ai_plans.pop(m_block['name'])
+                                
+                                supabase.table("team").update({
+                                    "members": updated_members,
+                                    "subjects": updated_subjects,
+                                    "ai_plans": updated_ai_plans
+                                }).eq("invite_code", st.session_state.invite_code).execute()
+                                st.rerun()
 
-                    # 등록 과목 현황 서브 노출
                     sub_list = data['subjects'].get(m_block['name'], [])
                     if sub_list:
                         sub_badges = " | ".join([f"📚 {s['name']} (Day {s.get('current_day', 1)})" for s in sub_list])
@@ -508,13 +501,10 @@ elif st.session_state.page == 'dashboard':
         # =========================================================================
         elif st.session_state.current_mode == 'focus':
             st.markdown(f"<div class='notion-header'>⚡ IMMERSION FOCUS MODE</div>", unsafe_allow_html=True)
-            st.markdown("<div class='notion-sub'>군더더기 설정 창이 완전히 숨겨진 고밀도 집중 모드입니다. 오늘의 미션 완수에만 몰입하세요.</div>", unsafe_allow_html=True)
             
-            # 실시간 몰입 시간 계산 엔진 구동
             current_elapsed = int(time.time() - st.session_state.start_time) + st.session_state.elapsed_time
             h = current_elapsed // 3600; m = (current_elapsed % 3600) // 60; s = current_elapsed % 60
             
-            # 중앙 대형 포커스 패널 배치
             st.markdown(f"""
             <div class='focus-panel'>
                 <div class='focus-badge'>🔥 현재 집중 타겟: {st.session_state.active_subject} (Day {st.session_state.active_day})</div>
@@ -523,10 +513,8 @@ elif st.session_state.page == 'dashboard':
             </div>
             """, unsafe_allow_html=True)
             
-            # 노션 스타일의 오늘의 세부 학습 미션 체크리스트 시각화
             st.markdown("### 🔲 오늘의 학습 완수 체크리스트")
             
-            # AI 플랜에서 현재 일차에 해당하는 텍스트 추출 가공하여 동적 미션 생성
             target_day_text = ""
             if st.session_state.current_ai_plan:
                 lines = st.session_state.current_ai_plan.split('\n')
@@ -537,7 +525,6 @@ elif st.session_state.page == 'dashboard':
             if not target_day_text.strip():
                 target_day_text = f"Day {st.session_state.active_day}: 교안 핵심 메인 개념 정독 및 서론 파트 노트 정리 수반"
 
-            # 미션 라인을 토대로 체크박스 생성
             mission_lines = [l.strip() for l in target_day_text.split('\n') if l.strip()]
             for idx, m_line in enumerate(mission_lines):
                 st.checkbox(f"{m_line}", key=f"mission_chk_{idx}")
@@ -545,14 +532,12 @@ elif st.session_state.page == 'dashboard':
             st.write("")
             st.write("")
             
-            # 몰입 종료 인터랙션 버튼
             if st.button("🛑 몰입 종료 및 실전 검증 시험장 진입", type="primary", use_container_width=True):
                 st.session_state.timer_running = False
                 gained_time = int(time.time() - st.session_state.start_time)
                 st.session_state.elapsed_time += gained_time
-                gained_minutes = max(gained_time // 60, 1) # 최소 1분 카운트 보정
+                gained_minutes = max(gained_time // 60, 1)
                 
-                # 원격 데이터베이스에 누적 타임 누계 동기화 및 대기 상태 복원
                 ml = data['members']
                 for m_block in ml:
                     if m_block['name'] == st.session_state.my_name: 
@@ -560,12 +545,10 @@ elif st.session_state.page == 'dashboard':
                         m_block['total_time'] = m_block.get('total_time', 0) + gained_minutes
                 supabase.table("team").update({"members": ml}).eq("invite_code", st.session_state.invite_code).execute()
                 
-                # 즉각 시험 모드로 페이즈 스위칭
                 st.session_state.test_start_time = time.time()
-                st.session_state.user_answers = {} # 답안지 초기화
+                st.session_state.user_answers = {}
                 st.session_state.current_mode = 'test'
                 
-                # 시험 출제용 AI 트리거 요청 (자료 기반 동적 출제)
                 target_user_grade = next((m_block.get('grade', 'B+') for m_block in data['members'] if m_block['name'] == st.session_state.my_name), 'B+')
                 run_ai_engine("quiz", grade=target_user_grade, content=st.session_state.input_manual_text if st.session_state.input_manual_text else "기본 학업 개념")
                 st.rerun()
@@ -575,9 +558,7 @@ elif st.session_state.page == 'dashboard':
         # =========================================================================
         elif st.session_state.current_mode == 'test':
             st.markdown("<div class='notion-header'>📝 REAL-TIME REAL TEST (실전 검증 시험장)</div>", unsafe_allow_html=True)
-            st.markdown("<div class='notion-sub'>목표 성적 가중치가 반영된 AI 심화 압박 면접형 모의고사입니다. OMR 카드에 정답을 마킹하세요.</div>", unsafe_allow_html=True)
             
-            # 타임어택 카운트다운 타이머 계산
             time_passed = int(time.time() - st.session_state.test_start_time)
             time_remaining = max(st.session_state.test_limit_seconds - time_passed, 0)
             
@@ -592,17 +573,14 @@ elif st.session_state.page == 'dashboard':
             """, unsafe_allow_html=True)
             
             if time_remaining == 0:
-                st.error("⏰ 타임아웃! 제한 시간이 모두 만료되었습니다. 자동 제출 화면으로 강제 이동합니다.")
                 st.session_state.current_mode = 'result'
                 st.rerun()
 
-            # 화면 좌우 정밀 분할 (좌측: AI 출제 시험지 | 우측: OMR 디지털 마킹 카드)
             test_col_l, test_col_r = st.columns([1.3, 0.7])
             
             with test_col_l:
                 st.markdown("### 📄 AI REAL TEST QUESTION")
                 if st.session_state.current_ai_quiz:
-                    # 정답 단락 노출 사전 은닉 가공 파싱 (제출 전 보안 유지)
                     quiz_lines = st.session_state.current_ai_quiz.split("정답")
                     st.info(quiz_lines[0])
                 else:
@@ -615,20 +593,17 @@ elif st.session_state.page == 'dashboard':
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # 실제 OMR 입력을 위한 컴포넌트 바인딩 구조화
-                st.session_state.user_answers['q1'] = st.text_area("✒️ [OMR] 1번 문항 답안 입력", key="omr_1", placeholder="핵심 키워드를 포함하여 서술형으로 기재하세요.")
-                st.session_state.user_answers['q2'] = st.text_area("✒️ [OMR] 2번 문항 답안 입력", key="omr_2", placeholder="핵심 의도에 맞는 답변을 명확히 정의하세요.")
-                st.session_state.user_answers['q3'] = st.text_area("✒️ [OMR] 3번 문항 답안 입력", key="omr_3", placeholder="풀이 과정 혹은 개념 증명을 서술하세요.")
+                st.session_state.user_answers['q1'] = st.text_area("✒️ [OMR] 1번 문항 답안 입력", key="omr_1")
+                st.session_state.user_answers['q2'] = st.text_area("✒️ [OMR] 2번 문항 답안 입력", key="omr_2")
+                st.session_state.user_answers['q3'] = st.text_area("✒️ [OMR] 3번 문항 답안 입력", key="omr_3")
                 
                 st.write("")
                 if st.button("📥 [최종 답안 전송] 시험 종료", type="primary", use_container_width=True):
                     st.session_state.current_mode = 'result'
                     
-                    # 과목 차수 누적 처리 자동 계산 스위칭 (공부 완수 성취감 부여)
                     my_subs_update = data['subjects'].get(st.session_state.my_name, [])
                     for s in my_subs_update:
                         if s['name'] == st.session_state.active_subject:
-                            # 현재 차수 완수 처리 -> 다음 차수로 전진 유도
                             if s['current_day'] == st.session_state.active_day and s['current_day'] < s['total_days']:
                                 s['current_day'] += 1
                     
@@ -640,7 +615,7 @@ elif st.session_state.page == 'dashboard':
                     st.rerun()
 
         # =========================================================================
-        # MODE 4: 결과 리포트 모드 (성적표 발행 및 정오표, 오답노트 디스플레이)
+        # MODE 4: 결과 리포트 모드
         # =========================================================================
         elif st.session_state.current_mode == 'result':
             st.markdown("<div class='notion-header'>🎯 AI 실전 검증 성적 보고서</div>", unsafe_allow_html=True)
