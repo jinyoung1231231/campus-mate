@@ -26,13 +26,9 @@ st.markdown("""
         color: #7c7b77;
         margin-bottom: 24px;
     }
-    .subject-card {
-        background-color: #fbfbfa;
-        border: 1px solid #ededeb;
-        border-radius: 8px;
-        padding: 16px;
-        margin-bottom: 12px;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+    /* 과목 카드 내부 가독성 증폭 패딩 튜닝 */
+    .subject-card-inside {
+        padding: 4px 0px;
     }
     .subject-title {
         font-size: 16px;
@@ -44,12 +40,14 @@ st.markdown("""
         font-size: 12px;
         color: #7c7b77;
         margin-top: 4px;
+        margin-bottom: 8px;
     }
     .schedule-box {
         background-color: #f7f7f5;
         border-radius: 6px;
         padding: 10px 14px;
         margin-top: 10px;
+        margin-bottom: 12px;
         border-left: 3px solid #60a5fa;
     }
     .schedule-item {
@@ -61,22 +59,21 @@ st.markdown("""
     /* 타임라인 마일스톤 인터페이스 디자인 */
     .timeline-container {
         background-color: #ffffff;
-        border: 1px solid #e3e2e0;
-        border-radius: 8px;
-        padding: 20px;
+        border: 1px solid #ededeb;
+        border-radius: 6px;
+        padding: 12px;
         margin-top: 14px;
-        margin-bottom: 24px;
     }
     .timeline-title {
-        font-size: 16px;
+        font-size: 14px;
         font-weight: 700;
         color: #37352f;
-        margin-bottom: 14px;
+        margin-bottom: 10px;
     }
     .timeline-row {
         display: flex;
         align-items: flex-start;
-        padding: 12px 0;
+        padding: 10px 0;
         border-bottom: 1px solid #f1f1ef;
     }
     .timeline-row:last-child {
@@ -85,9 +82,9 @@ st.markdown("""
     .timeline-day-badge {
         min-width: 80px;
         font-weight: 700;
-        font-size: 13px;
+        font-size: 12px;
         color: #37352f;
-        padding: 2px 6px;
+        padding: 2px 4px;
         border-radius: 4px;
         text-align: center;
     }
@@ -96,8 +93,8 @@ st.markdown("""
     .badge-done { background-color: #eaf5ea; color: #2e7d32; }
     
     .timeline-content {
-        padding-left: 16px;
-        font-size: 13.5px;
+        padding-left: 12px;
+        font-size: 13px;
         color: #37352f;
         line-height: 1.5;
     }
@@ -187,7 +184,7 @@ def init_db():
 
 supabase = init_db()
 
-# 3. 세션 상태 관리 (통합 누적형 AI 플랜 저장소 기법 도입)
+# 3. 세션 상태 관리
 session_keys = {
     'page': 'gate',
     'my_name': '',
@@ -201,15 +198,14 @@ session_keys = {
     'test_start_time': None,
     'test_limit_seconds': 600,   
     'user_answers': {},          
-    'current_ai_plan': '', # 여러 과목의 미션이 누적 보관되는 글로벌 일정 버스
+    'current_ai_plan': '', 
     'current_ai_quiz': '',
     'current_ai_consult_q': '', 
     'current_ai_consult_a': '', 
     'input_manual_text': '',
     'input_days': 7,
     'input_grade': 'A+',
-    'refresh_lock': False,
-    'selected_timeline_sub': ''  
+    'refresh_lock': False  
 }
 
 for key, default in session_keys.items():
@@ -244,22 +240,18 @@ def run_ai_engine(prompt_type, **kwargs):
             model_instance = genai.GenerativeModel(target_model)
 
             if prompt_type == "plan":
-                # [버그 척결 핵심] AI 가 생성할 문장 앞에 매칭 태그 과목명을 명시하라고 지시 가중치 부여
                 p = f"""오늘 날짜는 {today_str}입니다. 타겟 과목명: [{kwargs['sub_name']}], 목표 성적: {kwargs['grade']}, 남은 기간: {kwargs['days']}일.
-제공된 학습 자료를 바탕으로, 사용자가 매일 공부할 수 있도록 각 일차별 학습 미션을 명확히 구분하여 계획표를 짜주세요.
+제공된 학습 자료를 바탕으로, 사용자가 매일 공부할 수 있도록 각 일차별 학습 미션을 구분하여 계획표를 짜주세요.
 
 [작성 수칙 - 매우 중요]
-반드시 하루의 스케줄은 한 줄로 끝나야 하며, 문장의 시작은 무조건 정확히 '과목명 Day 숫자:' 형태로 작성해야 합니다. 대시(-) 기호나 추가 줄바꿈을 포함하지 마세요.
-반드시 과목명 자리에는 대괄호 없이 기입하세요.
-예시 양식 (과목명이 '로봇공학'인 경우):
+반드시 하루의 스케줄은 한 줄로 끝나야 하며, 문장의 시작을 '과목명 Day X:' 형태로만 가공해야 합니다. 추가 문장이나 줄바꿈을 넣지 마세요.
+양식 준수 예시 (과목명이 '로봇공학'인 경우):
 로봇공학 Day 1: 로봇 센서 개론 기초 용어 정리 및 핵심 개념 요약하기
 로봇공학 Day 2: 적외선 센서 데이터 연동 코드 정독하기
 
 [학습 자료]
 {kwargs['content'][:4000]}"""
                 res = model_instance.generate_content(p)
-                
-                # 기존에 생성된 타 과목 일정이 증발하는 현상을 막기 위해 개행(줄바꿈)으로 이어붙여 누적 저장합니다.
                 st.session_state.current_ai_plan = st.session_state.current_ai_plan + "\n" + res.text
                 st.session_state.current_ai_quiz = "" 
 
@@ -371,12 +363,30 @@ elif st.session_state.page == 'dashboard':
             
             if menu == " 내 학습 보드 (메인)":
                 st.markdown("<div class='notion-header'>📊 전 과목 진행도 대시보드</div>", unsafe_allow_html=True)
-                st.markdown("<div class='notion-sub'>등록된 모든 과목의 러닝 페이스와 학사 일정을 한눈에 파악하고 즉시 몰입 모드로 진입하세요.</div>", unsafe_allow_html=True)
+                st.markdown("<div class='notion-sub'>각 과목 카드를 클릭하여 펼치면 AI가 설계한 세부 일정을 실시간으로 조회하고 확인할 수 있습니다.</div>", unsafe_allow_html=True)
                 
                 my_subs = data['subjects'].get(st.session_state.my_name, [])
                 
                 if my_subs:
-                    st.markdown("### 📂 현재 학습 진행 상황")
+                    st.markdown("### 📂 현재 학습 진행 상황 (클릭 시 일정 자동 연동 확장)")
+                    
+                    # 글로벌 텍스트 저장소 사전 전처리 파싱
+                    raw_lines = st.session_state.current_ai_plan.split('\n') if st.session_state.current_ai_plan else []
+                    parsed_all_missions = {}
+                    for row_line in raw_lines:
+                        if "Day" in row_line and ":" in row_line:
+                            try:
+                                for s_item in my_subs:
+                                    if s_item['name'] in row_line:
+                                        day_part, mission_part = row_line.split(":", 1)
+                                        day_num = int(''.join(filter(str.isdigit, day_part)))
+                                        if s_item['name'] not in parsed_all_missions:
+                                            parsed_all_missions[s_item['name']] = {}
+                                        parsed_all_missions[s_item['name']][day_num] = mission_part.strip()
+                            except:
+                                pass
+
+                    # [혁신 개편] 무의미한 라디오 버튼을 치우고, 3열 과목 진도 카드를 직접 클릭(익스팬더) 구조로 동적 결합
                     cols = st.columns(3)
                     for idx, sub in enumerate(my_subs):
                         col_target = cols[idx % 3]
@@ -391,83 +401,46 @@ elif st.session_state.page == 'dashboard':
                             task_week = sub.get('task_week', '3주차')
                             exam_week = sub.get('exam_week', '8주차 중간고사')
                             
-                            st.markdown(f"""
-                            <div class='subject-card'>
-                                <div class='subject-title'>📚 {sub_name}</div>
-                                <div style='font-size: 13px; color:#37352f;'><b>현재 진행:</b> Day {current_day} / {total_days}일 구성</div>
-                                <div class='progress-text'>과정 이수율: {progress_percent}%</div>
-                                <div class='schedule-box'>
-                                    <div class='schedule-item'>📅 <b>과제 제출일:</b> {task_week}</div>
-                                    <div class='schedule-item'>📝 <b>시험 주차:</b> {exam_week}</div>
+                            # 노션 감성의 확장형 카드 박스 구동
+                            with st.expander(f"📚 {sub_name} (이수율 {progress_percent}%)", expanded=False):
+                                st.markdown(f"""
+                                <div class='subject-card-inside'>
+                                    <div style='font-size: 13px; color:#37352f;'><b>현재 진행 상태:</b> Day {current_day} / {total_days}일 구성</div>
+                                    <div class='progress-text'>주요 연동 일정 라인더:</div>
+                                    <div class='schedule-box'>
+                                        <div class='schedule-item'>📅 <b>과제 제출 기한:</b> {task_week}</div>
+                                        <div class='schedule-item'>📝 <b>정기 시험 주차:</b> {exam_week}</div>
+                                    </div>
                                 </div>
-                            </div>
-                            """, unsafe_allow_html=True)
-                            st.progress(progress_ratio)
+                                """, unsafe_allow_html=True)
+                                st.progress(progress_ratio)
+                                
+                                # 이 과목에 대한 AI 일정이 있다면 카드 안쪽에 쏙 노출시킴
+                                sub_missions = parsed_all_missions.get(sub_name, {})
+                                if sub_missions or st.session_state.current_ai_plan:
+                                    st.markdown(f"<div class='timeline-container'><div class='timeline-title'>🗓️ {sub_name} AI 맞춤 로드맵</div>", unsafe_allow_html=True)
+                                    for d_i in range(1, total_days + 1):
+                                        mission_desc = sub_missions.get(d_i, f"{sub_name} 차시별 핵심 요약 내용 정독 및 검증 테스트 수행")
+                                        
+                                        if d_i < current_day:
+                                            badge_class = "badge-done"
+                                            status_label = "✅ 완료"
+                                        elif d_i == current_day:
+                                            badge_class = "badge-active"
+                                            status_label = "🔥 진행"
+                                        else:
+                                            badge_class = "badge-waiting"
+                                            status_label = "🔒 대기"
+                                            
+                                        st.markdown(f"""
+                                        <div class='timeline-row'>
+                                            <div class='timeline-day-badge {badge_class}'>Day {d_i} ({status_label})</div>
+                                            <div class='timeline-content'>{mission_desc}</div>
+                                        </div>
+                                        """, unsafe_allow_html=True)
+                                    st.markdown("</div>", unsafe_allow_html=True)
                 else:
                     st.info("현재 등록된 학습 과목이 없습니다. 아래 컴포넌트에서 과목을 추가하고 AI 맞춤 플랜을 생성해 보세요!")
-
-                # -----------------------------------------------------------------
-                # [버그 완전 타파] 클릭한 과목 필터링 맵핑 엔진 탑재 타임라인 보드
-                # -----------------------------------------------------------------
-                if my_subs and st.session_state.current_ai_plan:
-                    st.write("")
-                    st.markdown("### 🗓️ AI 생성 과목 타임라인 보드")
-                    
-                    sub_names = [s['name'] for s in my_subs]
-                    
-                    selected_timeline_sub = st.radio(
-                        "상세 일정을 조회할 학습 과목을 선택하세요", 
-                        sub_names, 
-                        horizontal=True,
-                        key="notion_timeline_switcher"
-                    )
-                    
-                    # 글로벌 텍스트 저장소 파싱 가동
-                    raw_lines = st.session_state.current_ai_plan.split('\n')
-                    parsed_missions = {}
-                    
-                    for row_line in raw_lines:
-                        # 현재 선택한 과목 텍스트 구문이 문장 안에 들어있고 Day 정보가 매칭되는지 확인
-                        if selected_timeline_sub in row_line and "Day" in row_line and ":" in row_line:
-                            try:
-                                # '과목명 Day X:' 뒤의 진짜 미션 텍스트 슬라이싱
-                                day_part, mission_part = row_line.split(":", 1)
-                                day_num = int(''.join(filter(str.isdigit, day_part)))
-                                parsed_missions[day_num] = mission_part.strip()
-                            except:
-                                pass
-                                
-                    matched_sub = next((s for s in my_subs if s['name'] == selected_timeline_sub), my_subs[0])
-                    sub_curr_day = matched_sub.get('current_day', 1)
-                    sub_max_days = matched_sub.get('total_days', 7)
-                    
-                    st.markdown(f"""
-                    <div class='timeline-container'>
-                        <div class='timeline-title'>🎯 <b>{selected_timeline_sub}</b> 핵심 마일스톤 추적 상세 로드맵</div>
-                    """, unsafe_allow_html=True)
-                    
-                    for d_i in range(1, sub_max_days + 1):
-                        # 동적 과목 필터 딕셔너리에서 데이터 조회 (없을 시 기본 보정구 배정)
-                        mission_desc = parsed_missions.get(d_i, f"{selected_timeline_sub} 개념 교안 핵심 요약 정독 및 일차별 평가 고사 응시")
-                        
-                        if d_i < sub_curr_day:
-                            badge_class = "badge-done"
-                            status_label = "✅ 완료"
-                        elif d_i == sub_curr_day:
-                            badge_class = "badge-active"
-                            status_label = "🔥 진행"
-                        else:
-                            badge_class = "badge-waiting"
-                            status_label = "🔒 대기"
-                            
-                        st.markdown(f"""
-                        <div class='timeline-row'>
-                            <div class='timeline-day-badge {badge_class}'>Day {d_i} ({status_label})</div>
-                            <div class='timeline-content'>{mission_desc}</div>
-                        </div>
-                        """, unsafe_allow_html=True)
-                        
-                    st.markdown("</div>", unsafe_allow_html=True)
 
                 st.divider()
 
@@ -563,7 +536,7 @@ elif st.session_state.page == 'dashboard':
                             
                             ml = data['members']
                             for m_block in ml:
-                                if m_block['name'] == m_block['name']: 
+                                if m_block['name'] == st.session_state.my_name: 
                                     m_block['status'] = f"🎯 {selected_sub_to_study} (Day {chosen_day}) 공부 중"
                             supabase.table("team").update({"members": ml}).eq("invite_code", st.session_state.invite_code).execute()
                             st.rerun()
