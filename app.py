@@ -311,229 +311,205 @@ elif st.session_state.page == 'dashboard':
         # MODE 1: 대시보드 모드
         # =========================================================================
         if st.session_state.current_mode == 'dashboard':
-            col_l, col_r = st.columns([1, 1])
             
-            with col_l:
-                if menu == " 내 학습 보드 (메인)":
-                    st.markdown("<div class='notion-header'>📊 전 과목 진행도 대시보드</div>", unsafe_allow_html=True)
-                    st.markdown("<div class='notion-sub'>등록된 모든 과목의 러닝 페이스와 Day 차수를 한눈에 파악하고 즉시 몰입 모드로 진입하세요.</div>", unsafe_allow_html=True)
-                    
-                    my_subs = data['subjects'].get(st.session_state.my_name, [])
-                    
+            if menu == " 내 학습 보드 (메인)":
+                st.markdown("<div class='notion-header'>📊 전 과목 진행도 대시보드</div>", unsafe_allow_html=True)
+                st.markdown("<div class='notion-sub'>등록된 모든 과목의 러닝 페이스와 Day 차수를 한눈에 파악하고 즉시 몰입 모드로 진입하세요.</div>", unsafe_allow_html=True)
+                
+                my_subs = data['subjects'].get(st.session_state.my_name, [])
+                
+                if my_subs:
+                    st.markdown("### 📂 현재 학습 진행 상황")
+                    cols = st.columns(3)
+                    for idx, sub in enumerate(my_subs):
+                        col_target = cols[idx % 3]
+                        with col_target:
+                            sub_name = sub['name']
+                            total_days = sub.get('total_days', 7)
+                            current_day = sub.get('current_day', 1)
+                            
+                            progress_ratio = min(current_day / total_days, 1.0)
+                            progress_percent = int(progress_ratio * 100)
+                            
+                            st.markdown(f"""
+                            <div class='subject-card'>
+                                <div class='subject-title'>📚 {sub_name}</div>
+                                <div style='font-size: 13px; color:#37352f;'><b>현재 진행:</b> Day {current_day} / {total_days}일 구성</div>
+                                <div class='progress-text'>과정 이수율: {progress_percent}%</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            st.progress(progress_ratio)
+                else:
+                    st.info("현재 등록된 학습 과목이 없습니다. 아래 컴포넌트에서 과목을 추가하고 AI 맞춤 플랜을 생성해 보세요!")
+
+                st.divider()
+
+                c_left, c_right = st.columns([1, 1])
+                with c_left:
+                    st.markdown("#### ➕ 신규 과목 및 AI 학습 설계")
+                    ns = st.text_input("새로 추가할 과목명", placeholder="예: TOEIC 영어, 로봇공학개론")
+                    if st.button("과목 보드에 등록", use_container_width=True):
+                        if ns:
+                            my_subs.append({"name": ns, "total_days": 7, "current_day": 1})
+                            all_s = data['subjects']; all_s[st.session_state.my_name] = my_subs
+                            supabase.table("team").update({"subjects": all_s}).eq("invite_code", st.session_state.invite_code).execute()
+                            st.rerun()
+                
+                with c_right:
                     if my_subs:
-                        st.markdown("### 📂 현재 학습 진행 상황")
-                        cols = st.columns(3)
-                        for idx, sub in enumerate(my_subs):
-                            col_target = cols[idx % 3]
-                            with col_target:
-                                sub_name = sub['name']
-                                total_days = sub.get('total_days', 7)
-                                current_day = sub.get('current_day', 1)
-                                
-                                progress_ratio = min(current_day / total_days, 1.0)
-                                progress_percent = int(progress_ratio * 100)
-                                
-                                st.markdown(f"""
-                                <div class='subject-card'>
-                                    <div class='subject-title'>📚 {sub_name}</div>
-                                    <div style='font-size: 13px; color:#37352f;'><b>현재 진행:</b> Day {current_day} / {total_days}일 구성</div>
-                                    <div class='progress-text'>과정 이수율: {progress_percent}%</div>
-                                </div>
-                                """, unsafe_allow_html=True)
-                                st.progress(progress_ratio)
-                    else:
-                        st.info("현재 등록된 학습 과목이 없습니다. 아래 컴포넌트에서 과목을 추가하고 AI 맞춤 플랜을 생성해 보세요!")
-
-                    st.divider()
-
-                    c_left, c_right = st.columns([1, 1])
-                    with c_left:
-                        st.markdown("#### ➕ 신규 과목 및 AI 학습 설계")
-                        ns = st.text_input("새로 추가할 과목명", placeholder="예: TOEIC 영어, 로봇공학개론")
-                        if st.button("과목 보드에 등록", use_container_width=True):
-                            if ns:
-                                my_subs.append({"name": ns, "total_days": 7, "current_day": 1})
-                                all_s = data['subjects']; all_s[st.session_state.my_name] = my_subs
-                                supabase.table("team").update({"subjects": all_s}).eq("invite_code", st.session_state.invite_code).execute()
-                                st.rerun()
-                    
-                    with c_right:
-                        if my_subs:
-                            target_sub = st.selectbox("⚙️ AI 관리 타겟 과목 선택", [s['name'] for s in my_subs])
-                            st.session_state.input_manual_text = st.text_area("학습 교안 본문 및 AI 세부 지시문 입력", value=st.session_state.input_manual_text, height=100, placeholder="여기에 요약할 텍스트를 붙여넣거나 세부 지시 사항을 입력하세요.")
-                            up_file = st.file_uploader("교안 파일 로드 (PDF/TXT)", type=['pdf', 'txt'], key="uploader_dash")
-                            
-                            extracted = extract_text(up_file) if up_file else ""
-                            combined_content = f"{st.session_state.input_manual_text}\n{extracted}".strip()
-                            
-                            cd1, cd2 = st.columns(2)
-                            days = cd1.number_input("목표 학습 기간 (일)", 1, 100, value=st.session_state.input_days)
-                            st.session_state.input_days = days
-                            grade = cd2.selectbox("달성 목표 학점 레벨", ["A+", "B+", "Pass"], index=["A+", "B+", "Pass"].index(st.session_state.input_grade))
-                            st.session_state.input_grade = grade
-                            
-                            if st.button("🤖 AI 맞춤형 일차별 계획 설계", type="primary", use_container_width=True):
-                                if combined_content:
-                                    for s in my_subs:
-                                        if s['name'] == target_sub:
-                                            s['total_days'] = days
-                                            s['current_day'] = 1
-                                    
-                                    ml = data['members']
-                                    for m_block in ml:
-                                        if m_block['name'] == st.session_state.my_name: 
-                                            m_block['grade'] = grade
-                                            m_block['days'] = f"{days}일"
-                                    supabase.table("team").update({"members": ml, "subjects": data['subjects']}).eq("invite_code", st.session_state.invite_code).execute()
-                                    run_ai_engine("plan", grade=grade, days=days, content=combined_content)
-                                else:
-                                    st.warning("일정을 설계할 텍스트 본문이나 지시사항을 채워넣어 주세요.")
-
-                    if my_subs:
-                        st.divider()
-                        st.markdown("### 🚀 오늘자 미션 집중 포화 및 몰입 런처")
+                        target_sub = st.selectbox("⚙️ AI 관리 타겟 과목 선택", [s['name'] for s in my_subs])
+                        st.session_state.input_manual_text = st.text_area("학습 교안 본문 및 AI 세부 지시문 입력", value=st.session_state.input_manual_text, height=100, placeholder="여기에 요약할 텍스트를 붙여넣거나 세부 지시 사항을 입력하세요.")
+                        up_file = st.file_uploader("교안 파일 로드 (PDF/TXT)", type=['pdf', 'txt'], key="uploader_dash")
                         
-                        cl1, cl2, cl3 = st.columns([1.5, 1, 1])
-                        with cl1:
-                            selected_sub_to_study = st.selectbox("오늘 완전히 몰입하여 파괴할 과목 고르기", [s['name'] for s in my_subs], key="study_selector")
+                        extracted = extract_text(up_file) if up_file else ""
+                        combined_content = f"{st.session_state.input_manual_text}\n{extracted}".strip()
                         
-                        matched_sub = next((s for s in my_subs if s['name'] == selected_sub_to_study), my_subs[0])
-                        current_sub_day = matched_sub.get('current_day', 1)
-                        max_sub_day = matched_sub.get('total_days', 7)
+                        cd1, cd2 = st.columns(2)
+                        days = cd1.number_input("목표 학습 기간 (일)", 1, 100, value=st.session_state.input_days)
+                        st.session_state.input_days = days
+                        grade = cd2.selectbox("달성 목표 학점 레벨", ["A+", "B+", "Pass"], index=["A+", "B+", "Pass"].index(st.session_state.input_grade))
+                        st.session_state.input_grade = grade
                         
-                        with cl2:
-                            chosen_day = st.selectbox("진행할 목표 일차 체크", [i for i in range(1, max_sub_day + 1)], index=min(current_sub_day - 1, max_sub_day - 1))
-                        
-                        with cl3:
-                            st.write("")
-                            st.write("")
-                            if st.button("🔥 몰입 모드 화면 가동", type="primary", use_container_width=True):
-                                st.session_state.active_subject = selected_sub_to_study
-                                st.session_state.active_day = chosen_day
-                                st.session_state.current_mode = 'focus'
-                                
-                                st.session_state.timer_running = True
-                                st.session_state.start_time = time.time()
+                        if st.button("🤖 AI 맞춤형 일차별 계획 설계", type="primary", use_container_width=True):
+                            if combined_content:
+                                for s in my_subs:
+                                    if s['name'] == target_sub:
+                                        s['total_days'] = days
+                                        s['current_day'] = 1
                                 
                                 ml = data['members']
                                 for m_block in ml:
                                     if m_block['name'] == st.session_state.my_name: 
-                                        m_block['status'] = f"🎯 {selected_sub_to_study} (Day {chosen_day}) 공부 중"
-                                supabase.table("team").update({"members": ml}).eq("invite_code", st.session_state.invite_code).execute()
-                                st.rerun()
+                                        m_block['grade'] = grade
+                                        m_block['days'] = f"{days}일"
+                                supabase.table("team").update({"members": ml, "subjects": data['subjects']}).eq("invite_code", st.session_state.invite_code).execute()
+                                run_ai_engine("plan", grade=grade, days=days, content=combined_content)
+                            else:
+                                st.warning("일정을 설계할 텍스트 본문이나 지시사항을 채워넣어 주세요.")
 
-                    if st.session_state.current_ai_plan:
-                        st.divider()
-                        st.markdown("#### 📋 현재 활성화된 AI 타겟 계획서 아카이브")
-                        with st.expander("전체 일차별 마스터 플랜 확인하기"):
-                            st.text(st.session_state.current_ai_plan)
-
-                elif menu == "👥 팀원 실시간 페이스":
-                    st.markdown("<div class='notion-header'>👥 스터디 팀원 실시간 러닝 페이스</div>", unsafe_allow_html=True)
-                    st.markdown("<div class='notion-sub'>함께 몰입하는 팀원들의 현재 모드, 학습 상태 및 오늘 누적 공부 시간을 실시간으로 공유합니다.</div>", unsafe_allow_html=True)
+                if my_subs:
+                    st.divider()
+                    st.markdown("### 🚀 오늘자 미션 집중 포화 및 몰입 런처")
                     
-                    room_owner = data['members'][0]['name'] if data['members'] else ""
-                    is_i_am_owner = (st.session_state.my_name == room_owner)
+                    cl1, cl2, cl3 = st.columns([1.5, 1, 1])
+                    with cl1:
+                        selected_sub_to_study = st.selectbox("오늘 완전히 몰입하여 파괴할 과목 고르기", [s['name'] for s in my_subs], key="study_selector")
                     
-                    for idx_m, m_block in enumerate(data['members']):
-                        owner_badge = "👑 방장" if m_block['name'] == room_owner else "👤 팀원"
-                        
-                        st.markdown(f"""
-                        <div class='subject-card' style='border-left: 4px solid #238387;'>
-                            <span style='font-size:16px; font-weight:700;'>{owner_badge} : {m_block['name']}님</span> | 
-                            <span style='color:#238387; font-weight:600;'>현재 상태: {m_block['status']}</span>
-                            <div style='margin-top:8px; font-size:13px; color:#7c7b77;'>
-                                🎯 목표 레벨: {m_block.get('grade', '-')} | 설정 기간: {m_block.get('days', '-')} | ⏱️ 오늘 누적 집중 시간: <b>{m_block.get('total_time', 0)}분</b>
-                            </div>
-                        </div>
-                        """, unsafe_allow_html=True)
-                        
-                        if is_i_am_owner and m_block['name'] != st.session_state.my_name:
-                            if st.button(f"🗑️ {m_block['name']} 강제 내보내기", key=f"kick_btn_{m_block['name']}"):
-                                st.session_state.refresh_lock = True
-                                
-                                fresh_res = supabase.table("team").select("members,subjects,ai_plans").eq("invite_code", st.session_state.invite_code).execute()
-                                if fresh_res.data:
-                                    f_data = fresh_res.data[0]
-                                    updated_members = [m for m in f_data['members'] if m['name'] != m_block['name']]
-                                    
-                                    updated_subjects = f_data.get('subjects', {}) or {}
-                                    if m_block['name'] in updated_subjects: updated_subjects.pop(m_block['name'])
-                                    
-                                    updated_ai_plans = f_data.get('ai_plans', {}) or {}
-                                    if m_block['name'] in updated_ai_plans: updated_ai_plans.pop(m_block['name'])
-                                    
-                                    supabase.table("team").update({
-                                        "members": updated_members,
-                                        "subjects": updated_subjects,
-                                        "ai_plans": updated_ai_plans
-                                    }).eq("invite_code", st.session_state.invite_code).execute()
-                                    
-                                    st.session_state.refresh_lock = False
-                                    st.rerun()
-
-                        sub_list = data['subjects'].get(m_block['name'], [])
-                        if sub_list:
-                            sub_badges = " | ".join([f"📚 {s['name']} (Day {s.get('current_day', 1)})" for s in sub_list])
-                            st.markdown(f"<div style='font-size:12px; color:#7c7b77; padding-left:12px;'>가동 중인 보드: {sub_badges}</div>", unsafe_allow_html=True)
+                    matched_sub = next((s for s in my_subs if s['name'] == selected_sub_to_study), my_subs[0])
+                    current_sub_day = matched_sub.get('current_day', 1)
+                    max_sub_day = matched_sub.get('total_days', 7)
+                    
+                    with cl2:
+                        chosen_day = st.selectbox("진행할 목표 일차 체크", [i for i in range(1, max_sub_day + 1)], index=min(current_sub_day - 1, max_sub_day - 1))
+                    
+                    with cl3:
                         st.write("")
+                        st.write("")
+                        if st.button("🔥 몰입 모드 화면 가동", type="primary", use_container_width=True):
+                            st.session_state.active_subject = selected_sub_to_study
+                            st.session_state.active_day = chosen_day
+                            st.session_state.current_mode = 'focus'
+                            
+                            st.session_state.timer_running = True
+                            st.session_state.start_time = time.time()
+                            
+                            ml = data['members']
+                            for m_block in ml:
+                                if m_block['name'] == st.session_state.my_name: 
+                                    m_block['status'] = f"🎯 {selected_sub_to_study} (Day {chosen_day}) 공부 중"
+                            supabase.table("team").update({"members": ml}).eq("invite_code", st.session_state.invite_code).execute()
+                            st.rerun()
 
-                elif menu == " 공유 게시판":
-                    st.markdown("<div class='notion-header'>📌 팀 공유 작업 게시판</div>", unsafe_allow_html=True)
-                    with st.form("b_form_notion"):
-                        t, c = st.text_input("게시글 제목"), st.text_area("내용 공유")
-                        if st.form_submit_button("보드에 포스팅 등록"):
-                            if t and c:
-                                ps = data['posts']; ps.append({"title": t, "content": c, "author": st.session_state.my_name})
-                                supabase.table("team").update({"posts": ps}).eq("invite_code", st.session_state.invite_code).execute()
-                                st.rerun()
+                if st.session_state.current_ai_plan:
+                    st.divider()
+                    st.markdown("#### 📋 현재 활성화된 AI 타겟 계획서 아카이브")
+                    with st.expander("전체 일차별 마스터 플랜 확인하기"):
+                        st.text(st.session_state.current_ai_plan)
+
+            elif menu == "👥 팀원 실시간 페이스":
+                st.markdown("<div class='notion-header'>👥 스터디 팀원 실시간 러닝 페이스</div>", unsafe_allow_html=True)
+                st.markdown("<div class='notion-sub'>함께 몰입하는 팀원들의 현재 모드, 학습 상태 및 오늘 누적 공부 시간을 실시간으로 공유합니다.</div>", unsafe_allow_html=True)
+                
+                room_owner = data['members'][0]['name'] if data['members'] else ""
+                is_i_am_owner = (st.session_state.my_name == room_owner)
+                
+                for idx_m, m_block in enumerate(data['members']):
+                    owner_badge = "👑 방장" if m_block['name'] == room_owner else "👤 팀원"
                     
-                    for idx, p in enumerate(reversed(data['posts'])):
-                        real_idx = len(data['posts']) - 1 - idx
-                        with st.expander(f"📄 {p['title']} — [작성자: {p['author']}]"):
-                            st.write(p['content'])
-                            if p['author'] == st.session_state.my_name:
-                                if st.button("🗑️ 포스팅 삭제", key=f"del_{real_idx}"):
-                                    current_posts = data['posts']
-                                    current_posts.pop(real_idx)
-                                    supabase.table("team").update({"posts": current_posts}).eq("invite_code", st.session_state.invite_code).execute()
-                                    st.rerun()
+                    st.markdown(f"""
+                    <div class='subject-card' style='border-left: 4px solid #238387;'>
+                        <span style='font-size:16px; font-weight:700;'>{owner_badge} : {m_block['name']}님</span> | 
+                        <span style='color:#238387; font-weight:600;'>현재 상태: {m_block['status']}</span>
+                        <div style='margin-top:8px; font-size:13px; color:#7c7b77;'>
+                            🎯 목표 레벨: {m_block.get('grade', '-')} | 설정 기간: {m_block.get('days', '-')} | ⏱️ 오늘 누적 집중 시간: <b>{m_block.get('total_time', 0)}분</b>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    if is_i_am_owner and m_block['name'] != st.session_state.my_name:
+                        if st.button(f"🗑️ {m_block['name']} 강제 내보내기", key=f"kick_btn_{m_block['name']}"):
+                            st.session_state.refresh_lock = True
+                            
+                            fresh_res = supabase.table("team").select("members,subjects,ai_plans").eq("invite_code", st.session_state.invite_code).execute()
+                            if fresh_res.data:
+                                f_data = fresh_res.data[0]
+                                updated_members = [m for m in f_data['members'] if m['name'] != m_block['name']]
+                                
+                                updated_subjects = f_data.get('subjects', {}) or {}
+                                if m_block['name'] in updated_subjects: updated_subjects.pop(m_block['name'])
+                                
+                                updated_ai_plans = f_data.get('ai_plans', {}) or {}
+                                if m_block['name'] in updated_ai_plans: updated_ai_plans.pop(m_block['name'])
+                                
+                                supabase.table("team").update({
+                                    "members": updated_members,
+                                    "subjects": updated_subjects,
+                                    "ai_plans": updated_ai_plans
+                                }).eq("invite_code", st.session_state.invite_code).execute()
+                                
+                                st.session_state.refresh_lock = False
+                                st.rerun()
 
-                elif menu == " AI 진로 및 학업 상담":
+                    sub_list = data['subjects'].get(m_block['name'], [])
+                    if sub_list:
+                        sub_badges = " | ".join([f"📚 {s['name']} (Day {s.get('current_day', 1)})" for s in sub_list])
+                        st.markdown(f"<div style='font-size:12px; color:#7c7b77; padding-left:12px;'>가동 중인 보드: {sub_badges}</div>", unsafe_allow_html=True)
+                    st.write("")
+
+            elif menu == " 공유 게시판":
+                st.markdown("<div class='notion-header'>📌 팀 공유 작업 게시판</div>", unsafe_allow_html=True)
+                with st.form("b_form_notion"):
+                    t, c = st.text_input("게시글 제목"), st.text_area("내용 공유")
+                    if st.form_submit_button("보드에 포스팅 등록"):
+                        if t and c:
+                            ps = data['posts']; ps.append({"title": t, "content": c, "author": st.session_state.my_name})
+                            supabase.table("team").update({"posts": ps}).eq("invite_code", st.session_state.invite_code).execute()
+                            st.rerun()
+                
+                for idx, p in enumerate(reversed(data['posts'])):
+                    real_idx = len(data['posts']) - 1 - idx
+                    with st.expander(f"📄 {p['title']} — [작성자: {p['author']}]"):
+                        st.write(p['content'])
+                        if p['author'] == st.session_state.my_name:
+                            if st.button("🗑️ 포스팅 삭제", key=f"del_{real_idx}"):
+                                current_posts = data['posts']
+                                current_posts.pop(real_idx)
+                                supabase.table("team").update({"posts": current_posts}).eq("invite_code", st.session_state.invite_code).execute()
+                                st.rerun()
+
+            elif menu == " AI 진로 및 학업 상담":
+                # 진로상담 보드에서만 좌우 분할 화면을 가동하여 피드백 칸을 깔끔하게 단독 배치합니다.
+                col_consult_l, col_consult_r = st.columns([1, 1])
+                with col_consult_l:
                     st.markdown("<div class='notion-header'>🔮 AI 1:1 진로 및 학업 전용 상담소</div>", unsafe_allow_html=True)
                     user_query = st.text_area("현재 학업 설계나 진로 선택, 슬럼프 고민에 대해 자유롭게 입력해 주세요.", height=150, placeholder="예: 전공 공부가 적성에 안 맞는 것 같아요. / 학점 관리 요령을 알고 싶어요.")
                     if st.button("멘토 AI에게 정밀 고민 솔루션 신청", type="primary", use_container_width=True):
                         if user_query:
                             run_ai_engine("consult", q=user_query)
-
-            with col_r:
-                if menu in [" 내 학습 보드 (메인)", "👥 팀원 실시간 페이스", " 공유 게시판"]:
-                    st.header("🤖 AI 학습 일정 검증 센터")
-                    st.divider()
-                    
-                    if st.session_state.current_ai_plan:
-                        st.write("📋 **나의 맞춤형 일차별 계획 리스트**")
-                        lines = st.session_state.current_ai_plan.split('\n')
-                        for line in lines:
-                            if not line.strip(): continue
                             
-                            # chosen_day 변수가 정의되어 있을 때만 하이라이트 활성화
-                            if menu == " 내 학습 보드 (메인)" and 'chosen_day' in locals() and f"Day {chosen_day}" in line:
-                                st.markdown(f"""<div class='active-plan-card'>{line}</div>""", unsafe_allow_html=True)
-                            else:
-                                st.markdown(f"""<div class='plan-card'>{line}</div>""", unsafe_allow_html=True)
-                    else:
-                        st.info("좌측 콘솔에서 자료 입력 후 AI 맞춤 일정을 설계하면 여기에 영구 보존됩니다.")
-                    
-                    if st.session_state.current_ai_quiz:
-                        st.divider()
-                        st.subheader("📝 목표 성적 맞춤형 실전 검증 퀴즈")
-                        st.write(st.session_state.current_ai_quiz)
-
-                elif menu == " AI 진로 및 학업 상담":
+                with col_consult_r:
                     st.header("🔮 AI 마인드셋 상담 피드백 센터")
                     st.divider()
-                    
                     if st.session_state.current_ai_consult_a:
                         st.write("📥 **최근 매칭된 멘토링 상담 카드**")
                         st.markdown(f"""
