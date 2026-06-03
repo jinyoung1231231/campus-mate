@@ -187,7 +187,7 @@ def init_db():
 
 supabase = init_db()
 
-# 3. 세션 상태 관리
+# 3. 세션 상태 관리 (통합 누적형 AI 플랜 저장소 기법 도입)
 session_keys = {
     'page': 'gate',
     'my_name': '',
@@ -201,7 +201,7 @@ session_keys = {
     'test_start_time': None,
     'test_limit_seconds': 600,   
     'user_answers': {},          
-    'current_ai_plan': '',
+    'current_ai_plan': '', # 여러 과목의 미션이 누적 보관되는 글로벌 일정 버스
     'current_ai_quiz': '',
     'current_ai_consult_q': '', 
     'current_ai_consult_a': '', 
@@ -244,19 +244,23 @@ def run_ai_engine(prompt_type, **kwargs):
             model_instance = genai.GenerativeModel(target_model)
 
             if prompt_type == "plan":
-                p = f"""오늘 날짜는 {today_str}입니다. 목표 성적: {kwargs['grade']}, 남은 기간: {kwargs['days']}일.
-제공된 학습 자료를 바탕으로, 사용자가 매일 공부할 수 있도록 각 일차별 학습 미션을 구분하여 계획표를 짜주세요.
+                # [버그 척결 핵심] AI 가 생성할 문장 앞에 매칭 태그 과목명을 명시하라고 지시 가중치 부여
+                p = f"""오늘 날짜는 {today_str}입니다. 타겟 과목명: [{kwargs['sub_name']}], 목표 성적: {kwargs['grade']}, 남은 기간: {kwargs['days']}일.
+제공된 학습 자료를 바탕으로, 사용자가 매일 공부할 수 있도록 각 일차별 학습 미션을 명확히 구분하여 계획표를 짜주세요.
 
-[작성 수칙]
-반드시 하루의 스케줄은 한 줄로 끝나야 하며, 문장의 시작을 'Day 1:', 'Day 2:', 'Day 3:' 형태로 시작해야 합니다. 추가적인 대시(-) 기호나 줄바꿈을 포함하지 마세요.
-예시:
-Day 1: 로봇 센서 개론 기초 용어 정리 및 핵심 개념 요약하기
-Day 2: 적외선 센서 데이터 연동 코드 정독하기
+[작성 수칙 - 매우 중요]
+반드시 하루의 스케줄은 한 줄로 끝나야 하며, 문장의 시작은 무조건 정확히 '과목명 Day 숫자:' 형태로 작성해야 합니다. 대시(-) 기호나 추가 줄바꿈을 포함하지 마세요.
+반드시 과목명 자리에는 대괄호 없이 기입하세요.
+예시 양식 (과목명이 '로봇공학'인 경우):
+로봇공학 Day 1: 로봇 센서 개론 기초 용어 정리 및 핵심 개념 요약하기
+로봇공학 Day 2: 적외선 센서 데이터 연동 코드 정독하기
 
 [학습 자료]
 {kwargs['content'][:4000]}"""
                 res = model_instance.generate_content(p)
-                st.session_state.current_ai_plan = res.text
+                
+                # 기존에 생성된 타 과목 일정이 증발하는 현상을 막기 위해 개행(줄바꿈)으로 이어붙여 누적 저장합니다.
+                st.session_state.current_ai_plan = st.session_state.current_ai_plan + "\n" + res.text
                 st.session_state.current_ai_quiz = "" 
 
             elif prompt_type == "quiz":
@@ -403,7 +407,7 @@ elif st.session_state.page == 'dashboard':
                     st.info("현재 등록된 학습 과목이 없습니다. 아래 컴포넌트에서 과목을 추가하고 AI 맞춤 플랜을 생성해 보세요!")
 
                 # -----------------------------------------------------------------
-                # [세션 메모리 락 안정성 버그 완벽 수정] 라디오 세션 맵핑형 타임라인 보드
+                # [버그 완전 타파] 클릭한 과목 필터링 맵핑 엔진 탑재 타임라인 보드
                 # -----------------------------------------------------------------
                 if my_subs and st.session_state.current_ai_plan:
                     st.write("")
@@ -411,7 +415,6 @@ elif st.session_state.page == 'dashboard':
                     
                     sub_names = [s['name'] for s in my_subs]
                     
-                    # [핵심 개편] 리런 시에도 상태가 절대로 깨지지 않는 라디오 탭 컨트롤러 시스템 가동
                     selected_timeline_sub = st.radio(
                         "상세 일정을 조회할 학습 과목을 선택하세요", 
                         sub_names, 
@@ -419,12 +422,15 @@ elif st.session_state.page == 'dashboard':
                         key="notion_timeline_switcher"
                     )
                     
-                    # 문장 필터링 및 딕셔너리 정렬 처리
+                    # 글로벌 텍스트 저장소 파싱 가동
                     raw_lines = st.session_state.current_ai_plan.split('\n')
                     parsed_missions = {}
+                    
                     for row_line in raw_lines:
-                        if "Day" in row_line and ":" in row_line:
+                        # 현재 선택한 과목 텍스트 구문이 문장 안에 들어있고 Day 정보가 매칭되는지 확인
+                        if selected_timeline_sub in row_line and "Day" in row_line and ":" in row_line:
                             try:
+                                # '과목명 Day X:' 뒤의 진짜 미션 텍스트 슬라이싱
                                 day_part, mission_part = row_line.split(":", 1)
                                 day_num = int(''.join(filter(str.isdigit, day_part)))
                                 parsed_missions[day_num] = mission_part.strip()
@@ -441,7 +447,8 @@ elif st.session_state.page == 'dashboard':
                     """, unsafe_allow_html=True)
                     
                     for d_i in range(1, sub_max_days + 1):
-                        mission_desc = parsed_missions.get(d_i, "교안 본문 핵심 독해 및 매일 일차별 개념 검증 완료하기")
+                        # 동적 과목 필터 딕셔너리에서 데이터 조회 (없을 시 기본 보정구 배정)
+                        mission_desc = parsed_missions.get(d_i, f"{selected_timeline_sub} 개념 교안 핵심 요약 정독 및 일차별 평가 고사 응시")
                         
                         if d_i < sub_curr_day:
                             badge_class = "badge-done"
@@ -524,7 +531,7 @@ elif st.session_state.page == 'dashboard':
                                         m_block['grade'] = grade
                                         m_block['days'] = f"{days}일"
                                 supabase.table("team").update({"members": ml, "subjects": data['subjects']}).eq("invite_code", st.session_state.invite_code).execute()
-                                run_ai_engine("plan", grade=grade, days=days, content=combined_content)
+                                run_ai_engine("plan", sub_name=target_sub, grade=grade, days=days, content=combined_content)
                             else:
                                 st.warning("일정을 설계할 텍스트 본문이나 지시사항을 채워넣어 주세요.")
 
@@ -556,7 +563,7 @@ elif st.session_state.page == 'dashboard':
                             
                             ml = data['members']
                             for m_block in ml:
-                                if m_block['name'] == st.session_state.my_name: 
+                                if m_block['name'] == m_block['name']: 
                                     m_block['status'] = f"🎯 {selected_sub_to_study} (Day {chosen_day}) 공부 중"
                             supabase.table("team").update({"members": ml}).eq("invite_code", st.session_state.invite_code).execute()
                             st.rerun()
