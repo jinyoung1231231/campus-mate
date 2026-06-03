@@ -8,7 +8,7 @@ import time
 from streamlit_autorefresh import st_autorefresh
 from PyPDF2 import PdfReader
 
-# 1. 노션 스타일 및 동적 레이아웃 커스텀 CSS 주입
+# 1. 노션 스타일 및 수직선 점(Dot) 타임라인 전용 CSS 주입
 st.markdown("""
 <style>
     .stApp {
@@ -26,75 +26,98 @@ st.markdown("""
         color: #7c7b77;
         margin-bottom: 24px;
     }
-    /* 과목 카드 내부 가독성 증폭 패딩 튜닝 */
-    .subject-card-inside {
-        padding: 4px 0px;
+    
+    /* 과목 카드 상하 세로 정렬 디자인 */
+    .subject-block {
+        background-color: #fbfbfa;
+        border: 1px solid #ededeb;
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 20px;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.02);
     }
     .subject-title {
-        font-size: 16px;
-        font-weight: 600;
+        font-size: 18px;
+        font-weight: 700;
         color: #37352f;
-        margin-bottom: 8px;
-    }
-    .progress-text {
-        font-size: 12px;
-        color: #7c7b77;
-        margin-top: 4px;
-        margin-bottom: 8px;
+        margin-bottom: 12px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
     }
     .schedule-box {
         background-color: #f7f7f5;
         border-radius: 6px;
-        padding: 10px 14px;
-        margin-top: 10px;
-        margin-bottom: 12px;
+        padding: 12px 16px;
+        margin-top: 12px;
+        margin-bottom: 16px;
         border-left: 3px solid #60a5fa;
+        display: flex;
+        gap: 24px;
     }
     .schedule-item {
-        font-size: 12px;
+        font-size: 13px;
         color: #4b5563;
+    }
+    
+    /* 수직선 포인트 타임라인 보드 그래픽 구조 */
+    .vertical-timeline {
+        position: relative;
+        border-left: 2px solid #e3e2e0;
+        margin-left: 12px;
+        padding-left: 24px;
+        margin-top: 16px;
+        margin-bottom: 16px;
+    }
+    .timeline-node {
+        position: relative;
+        margin-bottom: 18px;
+    }
+    .timeline-node:last-child {
+        margin-bottom: 0;
+    }
+    
+    /* 수직선 위의 점(Dot) 디자인 */
+    .timeline-dot {
+        position: absolute;
+        left: -31px;
+        top: 3px;
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background-color: #fff;
+        border: 3px solid #cbd5e1;
+        z-index: 2;
+    }
+    .dot-active {
+        border-color: #238387;
+        background-color: #238387;
+        box-shadow: 0 0 0 4px #e2f3f5;
+    }
+    .dot-done {
+        border-color: #2e7d32;
+        background-color: #2e7d32;
+    }
+    
+    /* 일차별 텍스트 및 배지 조화 */
+    .node-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
         margin-bottom: 4px;
     }
-    
-    /* 타임라인 마일스톤 인터페이스 디자인 */
-    .timeline-container {
-        background-color: #ffffff;
-        border: 1px solid #ededeb;
-        border-radius: 6px;
-        padding: 12px;
-        margin-top: 14px;
-    }
-    .timeline-title {
-        font-size: 14px;
+    .node-badge {
+        font-size: 11px;
         font-weight: 700;
-        color: #37352f;
-        margin-bottom: 10px;
+        padding: 1px 6px;
+        border-radius: 3px;
     }
-    .timeline-row {
-        display: flex;
-        align-items: flex-start;
-        padding: 10px 0;
-        border-bottom: 1px solid #f1f1ef;
-    }
-    .timeline-row:last-child {
-        border-bottom: none;
-    }
-    .timeline-day-badge {
-        min-width: 80px;
-        font-weight: 700;
-        font-size: 12px;
-        color: #37352f;
-        padding: 2px 4px;
-        border-radius: 4px;
-        text-align: center;
-    }
-    .badge-waiting { background-color: #f1f1ef; color: #7c7b77; }
-    .badge-active { background-color: #e2f3f5; color: #238387; border: 1px solid #238387; }
-    .badge-done { background-color: #eaf5ea; color: #2e7d32; }
+    .nb-waiting { background-color: #f1f1ef; color: #7c7b77; }
+    .nb-active { background-color: #e2f3f5; color: #238387; }
+    .nb-done { background-color: #eaf5ea; color: #2e7d32; }
     
-    .timeline-content {
-        padding-left: 12px;
-        font-size: 13px;
+    .node-text {
+        font-size: 13.5px;
         color: #37352f;
         line-height: 1.5;
     }
@@ -363,14 +386,12 @@ elif st.session_state.page == 'dashboard':
             
             if menu == " 내 학습 보드 (메인)":
                 st.markdown("<div class='notion-header'>📊 전 과목 진행도 대시보드</div>", unsafe_allow_html=True)
-                st.markdown("<div class='notion-sub'>각 과목 카드를 클릭하여 펼치면 AI가 설계한 세부 일정을 실시간으로 조회하고 확인할 수 있습니다.</div>", unsafe_allow_html=True)
+                st.markdown("<div class='notion-sub'>각 과목 카드를 클릭하여 펼치면, 수직선 마일스톤 점과 동기화된 일차별 AI 계획을 바로 확인할 수 있습니다.</div>", unsafe_allow_html=True)
                 
                 my_subs = data['subjects'].get(st.session_state.my_name, [])
                 
                 if my_subs:
-                    st.markdown("### 📂 현재 학습 진행 상황 (클릭 시 일정 자동 연동 확장)")
-                    
-                    # 글로벌 텍스트 저장소 사전 전처리 파싱
+                    # AI 마스터 아카이브 문자열 분할 가공 준비
                     raw_lines = st.session_state.current_ai_plan.split('\n') if st.session_state.current_ai_plan else []
                     parsed_all_missions = {}
                     for row_line in raw_lines:
@@ -386,59 +407,68 @@ elif st.session_state.page == 'dashboard':
                             except:
                                 pass
 
-                    # [혁신 개편] 무의미한 라디오 버튼을 치우고, 3열 과목 진도 카드를 직접 클릭(익스팬더) 구조로 동적 결합
-                    cols = st.columns(3)
+                    st.markdown("### 📂 현재 학습 진행 상황")
+                    
+                    # [레이아웃 대격변] 3열 그리드를 파괴하고 1열 상하(위아래) 정렬로 전체 확장 배치
                     for idx, sub in enumerate(my_subs):
-                        col_target = cols[idx % 3]
-                        with col_target:
-                            sub_name = sub['name']
-                            total_days = sub.get('total_days', 7)
-                            current_day = sub.get('current_day', 1)
-                            
-                            progress_ratio = min(current_day / total_days, 1.0)
-                            progress_percent = int(progress_ratio * 100)
-                            
-                            task_week = sub.get('task_week', '3주차')
-                            exam_week = sub.get('exam_week', '8주차 중간고사')
-                            
-                            # 노션 감성의 확장형 카드 박스 구동
-                            with st.expander(f"📚 {sub_name} (이수율 {progress_percent}%)", expanded=False):
-                                st.markdown(f"""
-                                <div class='subject-card-inside'>
-                                    <div style='font-size: 13px; color:#37352f;'><b>현재 진행 상태:</b> Day {current_day} / {total_days}일 구성</div>
-                                    <div class='progress-text'>주요 연동 일정 라인더:</div>
-                                    <div class='schedule-box'>
-                                        <div class='schedule-item'>📅 <b>과제 제출 기한:</b> {task_week}</div>
-                                        <div class='schedule-item'>📝 <b>정기 시험 주차:</b> {exam_week}</div>
-                                    </div>
+                        sub_name = sub['name']
+                        total_days = sub.get('total_days', 7)
+                        current_day = sub.get('current_day', 1)
+                        
+                        progress_ratio = min(current_day / total_days, 1.0)
+                        progress_percent = int(progress_ratio * 100)
+                        
+                        task_week = sub.get('task_week', '3주차')
+                        exam_week = sub.get('exam_week', '8주차 중간고사')
+                        
+                        # 상하로 큼직하게 배치되는 세로 정렬 카드형 위젯 개동
+                        with st.container():
+                            st.markdown(f"""
+                            <div class='subject-block'>
+                                <div class='subject-title'>📚 {sub_name} <span style='font-size:13px; color:#238387; font-weight:normal;'>— 이수율 {progress_percent}% (Day {current_day}/{total_days}일차)</span></div>
+                                <div class='schedule-box'>
+                                    <div class='schedule-item'>📅 <b>과제 제출 기한:</b> {task_week}</div>
+                                    <div class='schedule-item'>📝 <b>정기 시험 주차:</b> {exam_week}</div>
                                 </div>
-                                """, unsafe_allow_html=True)
-                                st.progress(progress_ratio)
+                            </div>
+                            """, unsafe_allow_html=True)
+                            st.progress(progress_ratio)
+                            
+                            # [핵심 비주얼 기획] 해당 과목 카드 안쪽에 수직선 및 마일스톤 점(Dot) 그래프 그리기
+                            sub_missions = parsed_all_missions.get(sub_name, {})
+                            with st.expander(f"🔍 {sub_name} 전체 일차별 수직선 로드맵 펼치기", expanded=True):
+                                st.markdown("<div class='vertical-timeline'>", unsafe_allow_html=True)
                                 
-                                # 이 과목에 대한 AI 일정이 있다면 카드 안쪽에 쏙 노출시킴
-                                sub_missions = parsed_all_missions.get(sub_name, {})
-                                if sub_missions or st.session_state.current_ai_plan:
-                                    st.markdown(f"<div class='timeline-container'><div class='timeline-title'>🗓️ {sub_name} AI 맞춤 로드맵</div>", unsafe_allow_html=True)
-                                    for d_i in range(1, total_days + 1):
-                                        mission_desc = sub_missions.get(d_i, f"{sub_name} 차시별 핵심 요약 내용 정독 및 검증 테스트 수행")
+                                for d_i in range(1, total_days + 1):
+                                    mission_desc = sub_missions.get(d_i, f"{sub_name} 해당 차시 교안 핵심 텍스트 분석 및 모의평가 수행")
+                                    
+                                    # 달성 상태 판단에 따른 수직선 점(Dot) 컬러 인덱스 부여
+                                    if d_i < current_day:
+                                        dot_class = "dot-done"
+                                        badge_class = "nb-done"
+                                        status_label = "✅ 완수"
+                                    elif d_i == current_day:
+                                        dot_class = "dot-active"
+                                        badge_class = "nb-active"
+                                        status_label = "🔥 진행 중"
+                                    else:
+                                        dot_class = ""
+                                        badge_class = "nb-waiting"
+                                        status_label = "🔒 대기"
                                         
-                                        if d_i < current_day:
-                                            badge_class = "badge-done"
-                                            status_label = "✅ 완료"
-                                        elif d_i == current_day:
-                                            badge_class = "badge-active"
-                                            status_label = "🔥 진행"
-                                        else:
-                                            badge_class = "badge-waiting"
-                                            status_label = "🔒 대기"
-                                            
-                                        st.markdown(f"""
-                                        <div class='timeline-row'>
-                                            <div class='timeline-day-badge {badge_class}'>Day {d_i} ({status_label})</div>
-                                            <div class='timeline-content'>{mission_desc}</div>
+                                    st.markdown(f"""
+                                    <div class='timeline-node'>
+                                        <div class='timeline-dot {dot_class}'></div>
+                                        <div class='node-header'>
+                                            <span class='node-badge {badge_class}'>Day {d_i}</span>
+                                            <span style='font-size:12px; font-weight:600; color:#7c7b77;'>{status_label}</span>
                                         </div>
-                                        """, unsafe_allow_html=True)
-                                    st.markdown("</div>", unsafe_allow_html=True)
+                                        <div class='node-text'>{mission_desc}</div>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                                    
+                                st.markdown("</div>", unsafe_allow_html=True)
+                            st.markdown("<div style='margin-bottom:30px;'></div>", unsafe_allow_html=True)
                 else:
                     st.info("현재 등록된 학습 과목이 없습니다. 아래 컴포넌트에서 과목을 추가하고 AI 맞춤 플랜을 생성해 보세요!")
 
@@ -764,7 +794,7 @@ elif st.session_state.page == 'dashboard':
             st.markdown(f"<div class='notion-sub'>축하합니다! <b>{st.session_state.active_subject}</b> 과목의 모든 일차 학습 과정과 최종 평가가 공식 종료되었습니다.</div>", unsafe_allow_html=True)
             
             ans_len = len(st.session_state.user_answers.get('q1', '')) + len(st.session_state.user_answers.get('q2', ''))
-            target_user_grade = next((m_block.get('grade', 'A+') for m_block in data['members'] if m_block['name'] == st.session_state.my_name), 'A+')
+            target_user_grade = data['members'][0].get('grade', 'A+') if data['members'] else 'A+'
             
             if ans_len > 40:
                 final_gained_grade = target_user_grade
