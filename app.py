@@ -431,7 +431,6 @@ elif st.session_state.page == 'dashboard':
                 st.markdown("<div class='notion-sub'>함께 몰입하는 팀원들의 현재 모드, 학습 상태 및 오늘 누적 공부 시간을 실시간으로 공유합니다.</div>", unsafe_allow_html=True)
                 
                 room_owner = data['members'][0]['name'] if data['members'] else ""
-                is_i_am_owner = (st.session_state.my_name == room_owner)
                 
                 for idx_m, m_block in enumerate(data['members']):
                     owner_badge = "👑 방장" if m_block['name'] == room_owner else "👤 팀원"
@@ -445,39 +444,6 @@ elif st.session_state.page == 'dashboard':
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
-                    
-                    # [서버 삭제 기능 완전 보장 및 예외 처리 고도화]
-                    if is_i_am_owner and m_block['name'] != st.session_state.my_name:
-                        if st.button(f"🗑️ {m_block['name']} 강제 내보내기", key=f"kick_btn_{m_block['name']}"):
-                            st.session_state.refresh_lock = True
-                            
-                            # 공백 제거 및 완벽한 컬럼 동기화 조회 체계 가동
-                            fresh_res = supabase.table("team").select("members,subjects,ai_plans").eq("invite_code", st.session_state.invite_code).execute()
-                            if fresh_res.data:
-                                f_data = fresh_res.data[0]
-                                
-                                # 1. members 리스트에서 완전 축출
-                                updated_members = [m for m in f_data['members'] if m['name'] != m_block['name']]
-                                
-                                # 2. subjects 보드 맵에서 완전 파괴
-                                updated_subjects = f_data.get('subjects', {}) or {}
-                                if m_block['name'] in updated_subjects: 
-                                    del updated_subjects[m_block['name']]
-                                
-                                # 3. ai_plans 데이터 저장소에서 완전 소멸
-                                updated_ai_plans = f_data.get('ai_plans', {}) or {}
-                                if m_block['name'] in updated_ai_plans: 
-                                    del updated_ai_plans[m_block['name']]
-                                
-                                # 4. 수파베이스 원격 서버 테이블 동시 업데이트 물리 트랜잭션 수행
-                                supabase.table("team").update({
-                                    "members": updated_members,
-                                    "subjects": updated_subjects,
-                                    "ai_plans": updated_ai_plans
-                                }).eq("invite_code", st.session_state.invite_code).execute()
-                                
-                                st.session_state.refresh_lock = False
-                                st.rerun()
 
                     sub_list = data['subjects'].get(m_block['name'], [])
                     if sub_list:
@@ -507,7 +473,6 @@ elif st.session_state.page == 'dashboard':
                                 st.rerun()
 
             elif menu == " AI 진로 및 학업 상담":
-                # 진로상담 보드에서만 좌우 분할 화면을 가동하여 피드백 칸을 깔끔하게 단독 배치합니다.
                 col_consult_l, col_consult_r = st.columns([1, 1])
                 with col_consult_l:
                     st.markdown("<div class='notion-header'>🔮 AI 1:1 진로 및 학업 전용 상담소</div>", unsafe_allow_html=True)
@@ -638,7 +603,6 @@ elif st.session_state.page == 'dashboard':
                     my_subs_update = data['subjects'].get(st.session_state.my_name, [])
                     for s in my_subs_update:
                         if s['name'] == st.session_state.active_subject:
-                            # KeyError 예외 방어 자가 치유 코드 결합 완료
                             c_day = s.get('current_day', 1)
                             t_days = s.get('total_days', 7)
                             if c_day == st.session_state.active_day and c_day < t_days:
