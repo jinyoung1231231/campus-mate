@@ -11,13 +11,10 @@ from PyPDF2 import PdfReader
 # 1. 노션 스타일 및 몰입/시험 모드 커스텀 CSS 주입
 st.markdown("""
 <style>
-    /* 전체 배경색 및 폰트 정의 (노션 특유의 깔끔하고 정돈된 분위기) */
     .stApp {
         background-color: #ffffff;
         color: #37352f;
     }
-    
-    /* 대시보드 헤더 스타일 */
     .notion-header {
         font-size: 28px;
         font-weight: 700;
@@ -29,8 +26,6 @@ st.markdown("""
         color: #7c7b77;
         margin-bottom: 24px;
     }
-
-    /* 노션 스타일 카드 컴포넌트 (전체 과목 현황판용) */
     .subject-card {
         background-color: #fbfbfa;
         border: 1px solid #ededeb;
@@ -50,8 +45,6 @@ st.markdown("""
         color: #7c7b77;
         margin-top: 4px;
     }
-
-    /* 몰입 모드 전용 대형 디지털 타이머 패널 */
     .focus-panel {
         background-color: #f7f7f5;
         border-radius: 12px;
@@ -64,7 +57,7 @@ st.markdown("""
         font-size: 48px;
         font-weight: 700;
         font-family: monospace;
-        color: #238387; /* 노션 청록색 포인트 */
+        color: #238387;
         margin: 12px 0;
     }
     .focus-badge {
@@ -76,8 +69,6 @@ st.markdown("""
         font-weight: 600;
         display: inline-block;
     }
-
-    /* 시험 모드 타임어택 카운트다운 타이머 패널 */
     .test-panel {
         background-color: #fff5f5;
         border: 1px solid #ffe3e3;
@@ -90,10 +81,8 @@ st.markdown("""
         font-size: 36px;
         font-weight: 700;
         font-family: monospace;
-        color: #e03131; /* 경고 Redmond 컬러 */
+        color: #e03131;
     }
-
-    /* OMR 카드 디자인 */
     .omr-container {
         background-color: #fcfcfb;
         border-left: 3px solid #37352f;
@@ -117,7 +106,7 @@ def init_db():
 
 supabase = init_db()
 
-# 3. 세션 상태 관리
+# 3. 세션 상태 관리 (리프레시 락 컨트롤 플래그 추가)
 session_keys = {
     'page': 'gate',
     'my_name': '',
@@ -136,7 +125,8 @@ session_keys = {
     'current_ai_consult': '',
     'input_manual_text': '',
     'input_days': 7,
-    'input_grade': 'A+'
+    'input_grade': 'A+',
+    'refresh_lock': False  # [버그 해결] AI 구동 및 내보내기 시 리프레시를 잠그는 보안 락
 }
 
 for key, default in session_keys.items():
@@ -155,6 +145,8 @@ def extract_text(uploaded_file):
 
 # 5. 제미나이 AI 백엔드 오케스트레이션 함수
 def run_ai_engine(prompt_type, **kwargs):
+    # AI 통신 시작 시 무조건 리프레시 락을 걸어 2초 타이머가 간섭하지 못하게 방어합니다.
+    st.session_state.refresh_lock = True
     with st.spinner("AI가 핵심 데이터를 분석하고 있습니다... 📝"):
         try:
             today_str = datetime.now().strftime("%Y년 %m월 %d일")
@@ -163,6 +155,7 @@ def run_ai_engine(prompt_type, **kwargs):
             valid_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
             if not valid_models:
                 st.error("API 키가 유효하지 않거나 모델 목록을 불러올 수 없습니다.")
+                st.session_state.refresh_lock = False
                 return
             
             target_model = next((m for kw in ['flash-latest', '2.5-flash', '2.0-flash', '1.5-flash', 'flash'] for m in valid_models if kw in m and 'vision' not in m and 'lite' not in m), valid_models[0])
@@ -200,9 +193,12 @@ def run_ai_engine(prompt_type, **kwargs):
                 res = model_instance.generate_content(p)
                 st.session_state.current_ai_consult = res.text
             
+            # AI 처리가 완전히 끝나면 락을 해제하고 리런합니다.
+            st.session_state.refresh_lock = False
             st.rerun()
                 
         except Exception as e:
+            st.session_state.refresh_lock = False
             st.error(f"AI 통신 및 데이터 연동 중 오류 발생: {e}")
 
 # 6. 사용자 인증 및 팀 게이트웨이 렌더링
@@ -263,8 +259,9 @@ elif st.session_state.page == 'dashboard':
     if not st.session_state.invite_code: 
         st.session_state.page = 'gate'; st.rerun()
 
-    # 실시간 동기화 인터벌 선언 (2초 단위 리프레시 엔진 구동)
-    st_autorefresh(interval=2000, key="global_refresh_engine")
+    # [버그 수정] 리프레시 락 플래그가 False(대기 상태)일 때만 실시간 2초 타이머를 구동합니다.
+    if not st.session_state.refresh_lock:
+        st_autorefresh(interval=2000, key="global_refresh_engine")
     
     res = supabase.table("team").select("*").eq("invite_code", st.session_state.invite_code).execute()
     data = res.data[0] if res.data else None
@@ -415,12 +412,10 @@ elif st.session_state.page == 'dashboard':
                 st.markdown("<div class='notion-header'>👥 스터디 팀원 실시간 러닝 페이스</div>", unsafe_allow_html=True)
                 st.markdown("<div class='notion-sub'>함께 몰입하는 팀원들의 현재 모드, 학습 상태 및 오늘 누적 공부 시간을 실시간으로 공유합니다.</div>", unsafe_allow_html=True)
                 
-                # 방을 만든 사람(방장)은 members 리스트의 0번째 인덱스 유저로 고정 식별
                 room_owner = data['members'][0]['name'] if data['members'] else ""
                 is_i_am_owner = (st.session_state.my_name == room_owner)
                 
                 for idx_m, m_block in enumerate(data['members']):
-                    # 방장 표시 배지 부여
                     owner_badge = "👑 방장" if m_block['name'] == room_owner else "👤 팀원"
                     
                     st.markdown(f"""
@@ -433,12 +428,12 @@ elif st.session_state.page == 'dashboard':
                     </div>
                     """, unsafe_allow_html=True)
                     
-                    # [버그 완전 수정 및 방장 전용 권한 부여]
-                    # 내가 방장이고, 타겟팅된 카드가 본인 카드가 아닐 때만 '내보내기' 제어창을 가동합니다.
+                    # [버그 완전 수정 및 강제 락 처리]
                     if is_i_am_owner and m_block['name'] != st.session_state.my_name:
-                        # 리스트 루프 터짐을 막기 위해 고유 닉네임을 파라미터로 넘기는 전용 버튼 구현
                         if st.button(f"🗑️ {m_block['name']} 강제 내보내기", key=f"kick_btn_{m_block['name']}"):
-                            # 실시간으로 새롭게 변동 데이터를 조회하여 동기화 버그 원천 차단
+                            # 내보내기가 실행되는 순간 동기화 리프레시 타이머를 즉시 정지시킵니다.
+                            st.session_state.refresh_lock = True
+                            
                             fresh_res = supabase.table("team").select("members, subjects, ai_plans").eq("invite_code", st.session_state.invite_code).execute()
                             if fresh_res.data:
                                 f_data = fresh_res.data[0]
@@ -455,6 +450,9 @@ elif st.session_state.page == 'dashboard':
                                     "subjects": updated_subjects,
                                     "ai_plans": updated_ai_plans
                                 }).eq("invite_code", st.session_state.invite_code).execute()
+                                
+                                # 수파베이스에 처리가 완벽히 끝나면 안전하게 락을 풀고 강제 리런시킵니다.
+                                st.session_state.refresh_lock = False
                                 st.rerun()
 
                     sub_list = data['subjects'].get(m_block['name'], [])
@@ -497,7 +495,7 @@ elif st.session_state.page == 'dashboard':
                     st.info(st.session_state.current_ai_consult)
 
         # =========================================================================
-        # MODE 2: 몰입 모드 (잡념 차단, 대형 타이머, 당일 미션 체크리스트 단독 배치)
+        # MODE 2: 몰입 모드 
         # =========================================================================
         elif st.session_state.current_mode == 'focus':
             st.markdown(f"<div class='notion-header'>⚡ IMMERSION FOCUS MODE</div>", unsafe_allow_html=True)
@@ -554,7 +552,7 @@ elif st.session_state.page == 'dashboard':
                 st.rerun()
 
         # =========================================================================
-        # MODE 3: 시험 모드 (실전 타임어택 타이머, 좌측 시험지, 우측 OMR 패널 완벽 분할)
+        # MODE 3: 시험 모드
         # =========================================================================
         elif st.session_state.current_mode == 'test':
             st.markdown("<div class='notion-header'>📝 REAL-TIME REAL TEST (실전 검증 시험장)</div>", unsafe_allow_html=True)
