@@ -58,7 +58,7 @@ st.markdown("""
         margin-bottom: 4px;
     }
     
-    /* [신규 설계] 노션 스타일 타임라인 마일스톤 보드 인터페이스 디자인 */
+    /* 노션 스타일 타임라인 마일스톤 보드 인터페이스 디자인 */
     .timeline-container {
         background-color: #ffffff;
         border: 1px solid #e3e2e0;
@@ -72,9 +72,6 @@ st.markdown("""
         font-weight: 700;
         color: #37352f;
         margin-bottom: 14px;
-        display: flex;
-        align-items: center;
-        gap: 6px;
     }
     .timeline-row {
         display: flex;
@@ -247,26 +244,20 @@ def run_ai_engine(prompt_type, **kwargs):
 
             if prompt_type == "plan":
                 p = f"""오늘 날짜는 {today_str}입니다. 목표 성적: {kwargs['grade']}, 남은 기간: {kwargs['days']}일.
-제공된 학습 자료를 바탕으로, 사용자가 매일 성실히 공부할 수 있도록 각 일차별 학습 미션을 명확히 구분하여 계획표를 짜주세요.
+제공된 학습 자료를 바탕으로, 사용자가 매일 공부할 수 있도록 각 일차별 학습 미션을 구분하여 계획표를 짜주세요.
 
 [작성 수칙]
-반드시 하루의 스케줄은 한 줄로 끝나야 하며, 앞에 다른 수식어 없이 무조건 문장의 시작을 'Day 1:', 'Day 2:', 'Day 3:' 형태로 시작해야 합니다. 대시(-) 기호나 추가 줄바꿈을 쓰지 마세요.
+반드시 하루의 스케줄은 한 줄로 끝나야 하며, 문장의 시작을 'Day 1:', 'Day 2:', 'Day 3:' 형태로 시작해야 합니다. 추가적인 대시(-) 기호나 줄바꿈을 포함하지 마세요.
 예시:
-Day 1: 로봇 센서 개론 기초 용어 정리 및 핵심 개념 3개 요약하기
-Day 2: 적외선 센서 및 초음파 센서 데이터 연동 코드 정독하기
+Day 1: 로봇 센서 개론 기초 용어 정리 및 핵심 개념 요약하기
+Day 2: 적외선 센서 데이터 연동 코드 정독하기
 
 [학습 자료]
 {kwargs['content'][:4000]}"""
                 res = model_instance.generate_content(p)
+                # 에러를 유발하던 외부 ai_plans 컬럼 동기화 코드를 완전히 제거하고 세션 상태에 직접 고정 보존합니다.
                 st.session_state.current_ai_plan = res.text
                 st.session_state.current_ai_quiz = "" 
-                
-                # DB 원격 서버에 생성된 타임라인 텍스트 동기화 보존
-                res_db = supabase.table("team").select("ai_plans").eq("invite_code", st.session_state.invite_code).execute()
-                current_plans = res_db.data[0].get('ai_plans', {}) if res_db.data else {}
-                if not current_plans: current_plans = {}
-                current_plans[st.session_state.my_name] = res.text
-                supabase.table("team").update({"ai_plans": current_plans}).eq("invite_code", st.session_state.invite_code).execute()
 
             elif prompt_type == "quiz":
                 p = f"""아래 학습 자료를 바탕으로, 사용자의 목표 학점인 [{kwargs['grade']}] 수준에 맞는 핵심 변별력 퀴즈 3개를 정답 및 해설과 함께 출제해주세요.
@@ -323,7 +314,7 @@ if st.session_state.page == 'gate':
                     supabase.table("team").insert({
                         "invite_code": code, "team_name": tn,
                         "members": [{"name": un, "status": "대기", "grade": "-", "days": "-", "total_time": 0}],
-                        "subjects": {un: []}, "posts": [], "ai_plans": {un: ""}
+                        "subjects": {un: []}, "posts": []
                     }).execute()
                     st.session_state.update({"invite_code": code, "my_name": un, "page": "dashboard"})
                     st.rerun()
@@ -333,12 +324,11 @@ if st.session_state.page == 'gate':
             if st.button("공유 워크스페이스 입장"):
                 res = supabase.table("team").select("*").eq("invite_code", ci).execute()
                 if res.data:
-                    d = res.data[0]; ml = d['members']; sl = d.get('subjects', {}) or {}; ap = d.get('ai_plans', {}) or {}
+                    d = res.data[0]; ml = d['members']; sl = d.get('subjects', {}) or {}
                     if not any(m['name'] == un for m in ml):
                         ml.append({"name": un, "status": "대기", "grade": "-", "days": "-", "total_time": 0})
                         sl[un] = []
-                        if un not in ap: ap[un] = ""
-                        supabase.table("team").update({"members": ml, "subjects": sl, "ai_plans": ap}).eq("invite_code", ci).execute()
+                        supabase.table("team").update({"members": ml, "subjects": sl}).eq("invite_code", ci).execute()
                     st.session_state.update({"invite_code": ci, "my_name": un, "page": "dashboard"})
                     st.rerun()
 
@@ -354,10 +344,6 @@ elif st.session_state.page == 'dashboard':
     data = res.data[0] if res.data else None
     
     if data:
-        db_plans = data.get('ai_plans', {}) or {}
-        if db_plans.get(st.session_state.my_name) and not st.session_state.current_ai_plan:
-            st.session_state.current_ai_plan = db_plans.get(st.session_state.my_name)
-
         st.sidebar.markdown(f"<div class='notion-header' style='font-size:20px;'>📂 {data['team_name']}</div>", unsafe_allow_html=True)
         st.sidebar.markdown(f"<div class='notion-sub'>사용자: {st.session_state.my_name} 님</div>", unsafe_allow_html=True)
         
@@ -417,13 +403,12 @@ elif st.session_state.page == 'dashboard':
                     st.info("현재 등록된 학습 과목이 없습니다. 아래 컴포넌트에서 과목을 추가하고 AI 맞춤 플랜을 생성해 보세요!")
 
                 # -----------------------------------------------------------------
-                # [핵심 리뉴얼] 노션식 타임라인 보드 시각화 빌드 영역
+                # [안전 바인딩 개편] 학습 진행 상황 바로 밑에 펼쳐지는 노션식 타임라인 보드
                 # -----------------------------------------------------------------
                 if my_subs and st.session_state.current_ai_plan:
                     st.write("")
                     st.markdown("### 🗓️ AI 생성 동적 타겟 타임라인 보드")
                     
-                    # 파싱 전용 전처리 (줄바꿈 단위 분할)
                     raw_lines = st.session_state.current_ai_plan.split('\n')
                     parsed_missions = {}
                     
@@ -431,13 +416,11 @@ elif st.session_state.page == 'dashboard':
                         if "Day" in row_line and ":" in row_line:
                             try:
                                 day_part, mission_part = row_line.split(":", 1)
-                                # 숫자 추출
                                 day_num = int(''.join(filter(str.isdigit, day_part)))
                                 parsed_missions[day_num] = mission_part.strip()
                             except:
                                 pass
                     
-                    # 카드에서 고른 현재 몰입 대상 타겟 과목 매칭 조회
                     active_sub_name = st.session_state.active_subject if st.session_state.active_subject else my_subs[0]['name']
                     matched_sub = next((s for s in my_subs if s['name'] == active_sub_name), my_subs[0])
                     sub_curr_day = matched_sub.get('current_day', 1)
@@ -448,11 +431,9 @@ elif st.session_state.page == 'dashboard':
                         <div class='timeline-title'>📋 <b>{active_sub_name}</b> 과목 일차별 핵심 트래킹 라인</div>
                     """, unsafe_allow_html=True)
                     
-                    # 기간 스케줄 인덱스에 따라 동적 그리드 한 칸씩 하단 하강 조립
                     for d_i in range(1, sub_max_days + 1):
-                        mission_desc = parsed_missions.get(d_i, "교안 핵심 텍스트 정독 및 일차별 학습 과제 완수")
+                        mission_desc = parsed_missions.get(d_i, "교안 핵심 개념 정독 및 시스템 진도 미션 완수하기")
                         
-                        # 상태 평가 분기 처리
                         if d_i < sub_curr_day:
                             badge_class = "badge-done"
                             status_label = "✅ 완료"
@@ -490,7 +471,8 @@ elif st.session_state.page == 'dashboard':
                                 "task_week": ntask if ntask else "3주차",
                                 "exam_week": nexam if nexam else "8주차 중간고사"
                             })
-                            all_s = data['subjects']; all_s[st.session_state.my_name] = my_subs
+                            all_s = data['subjects']
+                            all_s[st.session_state.my_name] = my_subs
                             supabase.table("team").update({"subjects": all_s}).eq("invite_code", st.session_state.invite_code).execute()
                             st.rerun()
                             
@@ -617,27 +599,220 @@ elif st.session_state.page == 'dashboard':
                                 st.rerun()
 
             elif menu == " AI 진로 및 학업 상담":
-                st.markdown("<div class='notion-header'>🔮 AI 1:1 진로 및 학업 전용 상담소</div>", unsafe_allow_html=True)
-                user_query = st.text_area("현재 학업 설계나 진로 선택, 슬럼프 고민에 대해 자유롭게 입력해 주세요.", height=150, placeholder="예: 전공 공부가 적성에 안 맞는 것 같아요. / 학점 관리 요령을 알고 싶어요.")
-                
-                if st.button("멘토 AI에게 정밀 고민 솔루션 신청", type="primary", use_container_width=True):
-                    if user_query:
-                        run_ai_engine("consult", q=user_query)
+                col_consult_l, col_consult_r = st.columns([1, 1])
+                with col_consult_l:
+                    st.markdown("<div class='notion-header'>🔮 AI 1:1 진로 및 학업 전용 상담소</div>", unsafe_allow_html=True)
+                    user_query = st.text_area("현재 학업 설계나 진로 선택, 슬럼프 고민에 대해 자유롭게 입력해 주세요.", height=150, placeholder="예: 전공 공부가 적성에 안 맞는 것 같아요. / 학점 관리 요령을 알고 싶어요.")
+                    if st.button("멘토 AI에게 정밀 고민 솔루션 신청", type="primary", use_container_width=True):
+                        if user_query:
+                            run_ai_engine("consult", q=user_query)
                             
-                if st.session_state.current_ai_consult_a:
-                    st.markdown(f"""
-                    <div class='consult-container'>
-                        <div style='font-size: 16px; font-weight: 700; color: #37352f; margin-bottom: 12px;'>🔮 AI 멘토의 1:1 비밀 맞춤 솔루션</div>
-                        <div class='consult-user-q'>👤 <b>제출한 고민 내역:</b><br>{st.session_state.current_ai_consult_q}</div>
-                        <div class='consult-ai-a'>🤖 <b>AI 마인드 조언 가이드:</b><br><br>{st.session_state.current_ai_consult_a.replace('\n', '<br>')}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                else:
-                    st.write("")
-                    st.info("💡 위 입력창에 고민을 작성하고 신청 버튼을 누르시면, AI 멘토가 분석한 1:1 맞춤 피드백 보고서가 바로 이 자리에 출력됩니다.")
+                with col_consult_r:
+                    st.header("🔮 AI 마인드셋 상담 피드백 센터")
+                    st.divider()
+                    if st.session_state.current_ai_consult_a:
+                        st.write("📥 **최근 매칭된 멘토링 상담 카드**")
+                        st.markdown(f"""
+                        <div class='consult-container'>
+                            <div class='consult-user-q'>👤 <b>내 고민 내역:</b><br>{st.session_state.current_ai_consult_q}</div>
+                            <div class='consult-ai-a'>🤖 <b>AI 마인드 솔루션 조언:</b><br><br>{st.session_state.current_ai_consult_a.replace('\n', '<br>')}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        st.info("좌측 상담창에 고민을 타이핑한 후 솔루션 버튼을 누르시면, AI 멘토가 분석한 1:1 맞춤 피드백 보고서가 이곳에 고정 노출됩니다.")
 
         # =========================================================================
         # MODE 2: 몰입 모드
         # =========================================================================
         elif st.session_state.current_mode == 'focus':
             st.markdown(f"<div class='notion-header'>⚡ IMMERSION FOCUS MODE</div>", unsafe_allow_html=True)
+            
+            current_elapsed = int(time.time() - st.session_state.start_time) + st.session_state.elapsed_time
+            h = current_elapsed // 3600; m = (current_elapsed % 3600) // 60; s = current_elapsed % 60
+            
+            st.markdown(f"""
+            <div class='focus-panel'>
+                <div class='focus-badge'>🔥 현재 집중 타겟: {st.session_state.active_subject} (Day {st.session_state.active_day})</div>
+                <div class='focus-timer'>{h:02d}:{m:02d}:{s:02d}</div>
+                <div style='color: #7c7b77; font-size:13px;'>모든 외부 알림을 차단하고 뇌의 각성 상태를 유지하세요.</div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            st.markdown("### 🔲 오늘의 학습 완수 체크리스트")
+            
+            target_day_text = ""
+            if st.session_state.current_ai_plan:
+                lines = st.session_state.current_ai_plan.split('\n')
+                for line in lines:
+                    if f"Day {st.session_state.active_day}" in line or f"{st.session_state.active_day}일차" in line:
+                        target_day_text += line + "\n"
+            
+            if not target_day_text.strip():
+                target_day_text = f"Day {st.session_state.active_day}: 교안 핵심 메인 개념 정독 및 서론 파트 노트 정리 수반"
+
+            mission_lines = [l.strip() for l in target_day_text.split('\n') if l.strip()]
+            for idx, m_line in enumerate(mission_lines):
+                st.checkbox(f"{m_line}", key=f"mission_chk_{idx}")
+
+            st.write("")
+            st.write("")
+            
+            if st.button("🛑 몰입 종료 및 실전 검증 시험장 진입", type="primary", use_container_width=True):
+                st.session_state.timer_running = False
+                gained_time = int(time.time() - st.session_state.start_time)
+                st.session_state.elapsed_time += gained_time
+                gained_minutes = max(gained_time // 60, 1)
+                
+                ml = data['members']
+                for m_block in ml:
+                    if m_block['name'] == st.session_state.my_name: 
+                        m_block['status'] = "📝 실전 검증 시험 치르는 중"
+                        m_block['total_time'] = m_block.get('total_time', 0) + gained_minutes
+                supabase.table("team").update({"members": ml}).eq("invite_code", st.session_state.invite_code).execute()
+                
+                st.session_state.test_start_time = time.time()
+                st.session_state.user_answers = {}
+                st.session_state.current_mode = 'test'
+                
+                target_user_grade = next((m_block.get('grade', 'B+') for m_block in data['members'] if m_block['name'] == st.session_state.my_name), 'B+')
+                run_ai_engine("quiz", grade=target_user_grade, content=st.session_state.input_manual_text if st.session_state.input_manual_text else "기본 학업 개념")
+                st.rerun()
+
+        # =========================================================================
+        # MODE 3: 시험 모드
+        # =========================================================================
+        elif st.session_state.current_mode == 'test':
+            st.markdown("<div class='notion-header'>📝 REAL-TIME REAL TEST (실전 검증 시험장)</div>", unsafe_allow_html=True)
+            
+            time_passed = int(time.time() - st.session_state.test_start_time)
+            time_remaining = max(st.session_state.test_limit_seconds - time_passed, 0)
+            
+            rm_m = time_remaining // 60
+            rm_s = time_remaining % 60
+            
+            st.markdown(f"""
+            <div class='test-panel'>
+                <div style='font-size:13px; font-weight:600; color:#e03131;'>⚠️ 제한시간 이내에 답안을 전송하지 않으면 자동 0점 처리됩니다.</div>
+                <div class='test-timer'>{rm_m:02d}:{rm_s:02d}</div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            if time_remaining == 0:
+                st.session_state.current_mode = 'result'
+                st.rerun()
+
+            test_col_l, test_col_r = st.columns([1.3, 0.7])
+            
+            with test_col_l:
+                st.markdown("### 📄 AI REAL TEST QUESTION")
+                if st.session_state.current_ai_quiz:
+                    quiz_lines = st.session_state.current_ai_quiz.split("정답")
+                    st.info(quiz_lines[0])
+                else:
+                    st.info("AI가 목표 도달도 판별을 위한 맞춤형 심화 모의고사를 출제하고 있습니다. 잠시만 기다려 주세요...")
+            
+            with test_col_r:
+                st.markdown("""
+                <div class='omr-container'>
+                    <div class='omr-title'>📟 DIGITAL OMR CARD</div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                st.session_state.user_answers['q1'] = st.text_area("✒️ [OMR] 1번 문항 답안 입력", key="omr_1")
+                st.session_state.user_answers['q2'] = st.text_area("✒️ [OMR] 2번 문항 답안 입력", key="omr_2")
+                st.session_state.user_answers['q3'] = st.text_area("✒️ [OMR] 3번 문항 답안 입력", key="omr_3")
+                
+                st.write("")
+                if st.button("📥 [최종 답안 전송] 시험 종료", type="primary", use_container_width=True):
+                    my_subs_update = data['subjects'].get(st.session_state.my_name, [])
+                    is_course_finished = False
+                    
+                    for s in my_subs_update:
+                        if s['name'] == st.session_state.active_subject:
+                            c_day = s.get('current_day', 1)
+                            t_days = s.get('total_days', 7)
+                            
+                            if c_day == t_days:
+                                is_course_finished = True
+                            elif c_day == st.session_state.active_day and c_day < t_days:
+                                s['current_day'] = c_day + 1
+                    
+                    ml = data['members']
+                    for m_block in ml:
+                        if m_block['name'] == st.session_state.my_name: 
+                            m_block['status'] = "대기"
+                    supabase.table("team").update({"subjects": my_subs_update, "members": ml}).eq("invite_code", st.session_state.invite_code).execute()
+                    
+                    if is_course_finished:
+                        st.session_state.current_mode = 'result'
+                    else:
+                        st.session_state.current_mode = 'result_daily'
+                    st.rerun()
+
+        # =========================================================================
+        # MODE 4: 일반 일차별 결과 리포트 모드
+        # =========================================================================
+        elif st.session_state.current_mode == 'result_daily':
+            st.markdown("<div class='notion-header'>🎯 AI 일차별 검증 리포트</div>", unsafe_allow_html=True)
+            st.success(f"오늘자 {st.session_state.active_subject} (Day {st.session_state.active_day}) 테스트가 무사히 접수되었습니다.")
+            
+            tab_ans, tab_solution = st.tabs(["📥 내가 마킹한 OMR 제출본 확인", "🔍 AI 출제 정답 및 분석 해설지"])
+            with tab_ans:
+                st.write(f"**[1번 답안]** : {st.session_state.user_answers.get('q1', '미기입')}")
+                st.write(f"**[2번 답안]** : {st.session_state.user_answers.get('q2', '미기입')}")
+                st.write(f"**[3번 문항 답변]** : {st.session_state.user_answers.get('q3', '미기입')}")
+            with tab_solution:
+                if st.session_state.current_ai_quiz: st.write(st.session_state.current_ai_quiz)
+            
+            if st.button("🔄 검증 완료 및 대시보드로 돌아가기", type="primary", use_container_width=True):
+                st.session_state.current_mode = 'dashboard'
+                st.session_state.current_ai_quiz = ""
+                st.session_state.user_answers = {}
+                st.rerun()
+
+        # =========================================================================
+        # MODE 5: 최종 학점 산출 성적표 발행 모드
+        # =========================================================================
+        elif st.session_state.current_mode == 'result':
+            st.markdown("<div class='notion-header'>🎓 COURSE COMPLETION OFFICIAL REPORT</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='notion-sub'>축하합니다! <b>{st.session_state.active_subject}</b> 과목의 모든 일차 학습 과정과 최종 평가가 공식 종료되었습니다.</div>", unsafe_allow_html=True)
+            
+            ans_len = len(st.session_state.user_answers.get('q1', '')) + len(st.session_state.user_answers.get('q2', ''))
+            target_user_grade = next((m_block.get('grade', 'A+') for m_block in data['members'] if m_block['name'] == st.session_state.my_name), 'A+')
+            
+            if ans_len > 40:
+                final_gained_grade = target_user_grade
+            else:
+                final_gained_grade = "B+" if target_user_grade == "A+" else "Pass"
+                
+            st.markdown(f"""
+            <div class='report-card'>
+                <div style='font-size: 14px; font-weight: 600; color: #64748b; margin-bottom: 8px;'>학사 이수 인증 성적표 (OFFICIAL GRADE)</div>
+                <div style='font-size: 20px; font-weight: 700; color: #334155; margin-bottom: 4px;'>과목명: {st.session_state.active_subject}</div>
+                <div style='font-size: 13px; color: #94a3b8; margin-bottom: 16px;'>학습 러닝 타임 전체 이수 증명</div>
+                <div style='font-size: 64px; font-weight: 800; color: #10b981; letter-spacing: -2px;'>{final_gained_grade}</div>
+                <div style='font-size: 13px; color: #059669; font-weight: 600; margin-top: 8px;'>🎯 내 목표 학점 레벨 [{target_user_grade}] 대비 최종 도달 성공!</div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            st.write("")
+            tab_final_ans, tab_final_sol = st.tabs(["📥 최종 졸업 고사 제출 답안 확인", "🔍 출제 오답 정고표 분석 해설지"])
+            with tab_final_ans:
+                st.write(f"**[최종 고사 1번 문항]** : {st.session_state.user_answers.get('q1', '미기입')}")
+                st.write(f"**[최종 고사 2번 문항]** : {st.session_state.user_answers.get('q2', '미기입')}")
+                st.write(f"**[최종 고사 3번 문항]** : {st.session_state.user_answers.get('q3', '미기입')}")
+            with tab_final_sol:
+                if st.session_state.current_ai_quiz: st.write(st.session_state.current_ai_quiz)
+                
+            st.divider()
+            if st.button("🔄 최종 성적표 수령 완료 및 대시보드로 복귀", type="primary", use_container_width=True):
+                my_subs_update = data['subjects'].get(st.session_state.my_name, [])
+                for s in my_subs_update:
+                    if s['name'] == st.session_state.active_subject:
+                        s['current_day'] = 1
+                supabase.table("team").update({"subjects": my_subs_update}).eq("invite_code", st.session_state.invite_code).execute()
+                
+                st.session_state.current_mode = 'dashboard'
+                st.session_state.current_ai_quiz = ""
+                st.session_state.user_answers = {}
+                st.rerun()
