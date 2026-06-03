@@ -64,7 +64,7 @@ st.markdown("""
         border: 1px solid #e3e2e0;
         border-radius: 8px;
         padding: 20px;
-        margin-top: 8px;
+        margin-top: 14px;
         margin-bottom: 24px;
     }
     .timeline-title {
@@ -187,7 +187,7 @@ def init_db():
 
 supabase = init_db()
 
-# 3. 세션 상태 관리 (클릭 타겟 과목 트래커 추가)
+# 3. 세션 상태 관리
 session_keys = {
     'page': 'gate',
     'my_name': '',
@@ -209,7 +209,7 @@ session_keys = {
     'input_days': 7,
     'input_grade': 'A+',
     'refresh_lock': False,
-    'selected_timeline_sub': ''  # 사용자가 '클릭'하여 일정을 확인 중인 과목 저장고
+    'selected_timeline_sub': ''  
 }
 
 for key, default in session_keys.items():
@@ -403,26 +403,23 @@ elif st.session_state.page == 'dashboard':
                     st.info("현재 등록된 학습 과목이 없습니다. 아래 컴포넌트에서 과목을 추가하고 AI 맞춤 플랜을 생성해 보세요!")
 
                 # -----------------------------------------------------------------
-                # [기능 고도화] 과목 클릭 연동형 노션식 타임라인 인터페이스
+                # [세션 메모리 락 안정성 버그 완벽 수정] 라디오 세션 맵핑형 타임라인 보드
                 # -----------------------------------------------------------------
                 if my_subs and st.session_state.current_ai_plan:
                     st.write("")
-                    st.markdown("### 🗓️ AI 생성 과목 타임라인 보드 (과목을 클릭해 일정을 확인하세요)")
+                    st.markdown("### 🗓️ AI 생성 과목 타임라인 보드")
                     
-                    # 과목명들로 상단 토글/클릭 버튼바 생성
                     sub_names = [s['name'] for s in my_subs]
-                    if not st.session_state.selected_timeline_sub or st.session_state.selected_timeline_sub not in sub_names:
-                        st.session_state.selected_timeline_sub = sub_names[0]
-                        
-                    btn_cols = st.columns(len(sub_names))
-                    for b_idx, name_b in enumerate(sub_names):
-                        # 현재 선택된 과목은 버튼에 색상 힌트(primary)를 주어 가시성을 높임
-                        is_active_btn = (st.session_state.selected_timeline_sub == name_b)
-                        if btn_cols[b_idx].button(f"📁 {name_b}", key=f"t_sub_btn_{name_b}", type="primary" if is_active_btn else "secondary", use_container_width=True):
-                            st.session_state.selected_timeline_sub = name_b
-                            st.rerun()
                     
-                    # 클릭된 과목 기준 데이터 매핑 파싱 가동
+                    # [핵심 개편] 리런 시에도 상태가 절대로 깨지지 않는 라디오 탭 컨트롤러 시스템 가동
+                    selected_timeline_sub = st.radio(
+                        "상세 일정을 조회할 학습 과목을 선택하세요", 
+                        sub_names, 
+                        horizontal=True,
+                        key="notion_timeline_switcher"
+                    )
+                    
+                    # 문장 필터링 및 딕셔너리 정렬 처리
                     raw_lines = st.session_state.current_ai_plan.split('\n')
                     parsed_missions = {}
                     for row_line in raw_lines:
@@ -434,13 +431,13 @@ elif st.session_state.page == 'dashboard':
                             except:
                                 pass
                                 
-                    matched_sub = next((s for s in my_subs if s['name'] == st.session_state.selected_timeline_sub), my_subs[0])
+                    matched_sub = next((s for s in my_subs if s['name'] == selected_timeline_sub), my_subs[0])
                     sub_curr_day = matched_sub.get('current_day', 1)
                     sub_max_days = matched_sub.get('total_days', 7)
                     
                     st.markdown(f"""
                     <div class='timeline-container'>
-                        <div class='timeline-title'>🎯 <b>{st.session_state.selected_timeline_sub}</b> 핵심 마일스톤 추적 상세 로드맵</div>
+                        <div class='timeline-title'>🎯 <b>{selected_timeline_sub}</b> 핵심 마일스톤 추적 상세 로드맵</div>
                     """, unsafe_allow_html=True)
                     
                     for d_i in range(1, sub_max_days + 1):
@@ -611,7 +608,6 @@ elif st.session_state.page == 'dashboard':
                                 st.rerun()
 
             elif menu == " AI 진로 및 학업 상담":
-                # [상하 적층 구조 완벽 유지] 고민 입력 상자와 조언 카드가 수직으로 고정 배치됩니다.
                 st.markdown("<div class='notion-header'>🔮 AI 1:1 진로 및 학업 전용 상담소</div>", unsafe_allow_html=True)
                 user_query = st.text_area("현재 학업 설계나 진로 선택, 슬럼프 고민에 대해 자유롭게 입력해 주세요.", height=150, placeholder="예: 전공 공부가 적성에 안 맞는 것 같아요. / 학점 관리 요령을 알고 싶어요.")
                 
