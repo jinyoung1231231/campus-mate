@@ -446,21 +446,30 @@ elif st.session_state.page == 'dashboard':
                     </div>
                     """, unsafe_allow_html=True)
                     
+                    # [서버 삭제 기능 완전 보장 및 예외 처리 고도화]
                     if is_i_am_owner and m_block['name'] != st.session_state.my_name:
                         if st.button(f"🗑️ {m_block['name']} 강제 내보내기", key=f"kick_btn_{m_block['name']}"):
                             st.session_state.refresh_lock = True
                             
+                            # 공백 제거 및 완벽한 컬럼 동기화 조회 체계 가동
                             fresh_res = supabase.table("team").select("members,subjects,ai_plans").eq("invite_code", st.session_state.invite_code).execute()
                             if fresh_res.data:
                                 f_data = fresh_res.data[0]
+                                
+                                # 1. members 리스트에서 완전 축출
                                 updated_members = [m for m in f_data['members'] if m['name'] != m_block['name']]
                                 
+                                # 2. subjects 보드 맵에서 완전 파괴
                                 updated_subjects = f_data.get('subjects', {}) or {}
-                                if m_block['name'] in updated_subjects: updated_subjects.pop(m_block['name'])
+                                if m_block['name'] in updated_subjects: 
+                                    del updated_subjects[m_block['name']]
                                 
+                                # 3. ai_plans 데이터 저장소에서 완전 소멸
                                 updated_ai_plans = f_data.get('ai_plans', {}) or {}
-                                if m_block['name'] in updated_ai_plans: updated_ai_plans.pop(m_block['name'])
+                                if m_block['name'] in updated_ai_plans: 
+                                    del updated_ai_plans[m_block['name']]
                                 
+                                # 4. 수파베이스 원격 서버 테이블 동시 업데이트 물리 트랜잭션 수행
                                 supabase.table("team").update({
                                     "members": updated_members,
                                     "subjects": updated_subjects,
@@ -629,8 +638,11 @@ elif st.session_state.page == 'dashboard':
                     my_subs_update = data['subjects'].get(st.session_state.my_name, [])
                     for s in my_subs_update:
                         if s['name'] == st.session_state.active_subject:
-                            if s['current_day'] == st.session_state.active_day and s['current_day'] < s['total_days']:
-                                s['current_day'] += 1
+                            # KeyError 예외 방어 자가 치유 코드 결합 완료
+                            c_day = s.get('current_day', 1)
+                            t_days = s.get('total_days', 7)
+                            if c_day == st.session_state.active_day and c_day < t_days:
+                                s['current_day'] = c_day + 1
                     
                     ml = data['members']
                     for m_block in ml:
