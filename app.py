@@ -239,7 +239,7 @@ def run_ai_engine(prompt_type, **kwargs):
 # 6. 사용자 인증 및 팀 게이트웨이 렌더링
 if st.session_state.page == 'gate':
     st.title("Check-Mate")
-    st.markdown("<div class='notion-sub'>노션 스타일의 깔끔한 멀티 과목 관리 시스템 및 몰입형 스터디 공간</div>", unsafe_allow_html=True)
+    # [문구 전면 제거] 노션 스타일 시스템 서브 서술 마크다운 줄 삭제 완료
     
     un = st.text_input("사용자 닉네임 입력 (로그인)")
     
@@ -514,7 +514,6 @@ elif st.session_state.page == 'dashboard':
                                 st.rerun()
 
             elif menu == " AI 진로 및 학업 상담":
-                # [레이아웃 전면 수정] 노트북과 모바일 가독성을 저해하던 좌우 column 분할을 없앴습니다.
                 st.markdown("<div class='notion-header'>🔮 AI 1:1 진로 및 학업 전용 상담소</div>", unsafe_allow_html=True)
                 user_query = st.text_area("현재 학업 설계나 진로 선택, 슬럼프 고민에 대해 자유롭게 입력해 주세요.", height=150, placeholder="예: 전공 공부가 적성에 안 맞는 것 같아요. / 학점 관리 요령을 알고 싶어요.")
                 
@@ -522,7 +521,6 @@ elif st.session_state.page == 'dashboard':
                     if user_query:
                         run_ai_engine("consult", q=user_query)
                             
-                # [상하 종형 배치 완료] 고민 입력 양식 바로 밑(아래)에 단정하게 피드백 카드가 노출됩니다.
                 if st.session_state.current_ai_consult_a:
                     st.markdown(f"""
                     <div class='consult-container'>
@@ -533,7 +531,7 @@ elif st.session_state.page == 'dashboard':
                     """, unsafe_allow_html=True)
                 else:
                     st.write("")
-                    st.info("💡 위 입력창에 고민을 작성하고 신청 버튼을 누르시면, AI 멘토의 정밀 피드백 성적 보고서가 바로 이 자리에 출력됩니다.")
+                    st.info("💡 위 입력창에 고민을 작성하고 신청 버튼을 누르시면, AI 멘토가 분석한 1:1 맞춤 피드백 보고서가 바로 이 자리에 출력됩니다.")
 
         # =========================================================================
         # MODE 2: 몰입 모드
