@@ -317,6 +317,7 @@ elif st.session_state.page == 'dashboard':
                     for idx, sub in enumerate(my_subs):
                         col_target = cols[idx % 3]
                         with col_target:
+                            # 세션이나 DB에 누적된 Day 데이터 매핑 (기본값 설정)
                             sub_name = sub['name']
                             total_days = sub.get('total_days', 7)
                             current_day = sub.get('current_day', 1)
@@ -343,7 +344,7 @@ elif st.session_state.page == 'dashboard':
                 c_left, c_right = st.columns([1, 1])
                 with c_left:
                     st.markdown("#### ➕ 신규 과목 및 AI 학습 설계")
-                    ns = st.text_input("새로 추가할 과목명", placeholder=\"예: TOEIC 영어, 로봇공학개론\")
+                    ns = st.text_input("새로 추가할 과목명", placeholder="예: TOEIC 영어, 로봇공학개론")
                     if st.button("과목 보드에 등록", use_container_width=True):
                         if ns:
                             my_subs.append({"name": ns, "total_days": 7, "current_day": 1})
@@ -443,7 +444,7 @@ elif st.session_state.page == 'dashboard':
                     </div>
                     """, unsafe_allow_html=True)
                     
-                    # [기능 고도화] 팀 관리자 권한 및 멤버 내보내기 삭제 버튼 추가 (수파베이스 리스트 슬라이싱 연동)
+                    # 팀 관리자 권한 및 멤버 내보내기 삭제 버튼 추가 (수파베이스 리스트 슬라이싱 연동)
                     if m_block['name'] != st.session_state.my_name:
                         if st.button(f"🗑️ {m_block['name']} 팀원 내보내기", key=f"kick_{idx_m}"):
                             current_members = data['members']
