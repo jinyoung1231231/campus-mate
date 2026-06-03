@@ -8,7 +8,7 @@ import time
 from streamlit_autorefresh import st_autorefresh
 from PyPDF2 import PdfReader
 
-# 1. 노션 스타일 및 동적 타임라인 전용 CSS 주입
+# 1. 노션 스타일 및 동적 레이아웃 커스텀 CSS 주입
 st.markdown("""
 <style>
     .stApp {
@@ -58,13 +58,13 @@ st.markdown("""
         margin-bottom: 4px;
     }
     
-    /* 노션 스타일 타임라인 마일스톤 보드 인터페이스 디자인 */
+    /* 타임라인 마일스톤 인터페이스 디자인 */
     .timeline-container {
         background-color: #ffffff;
         border: 1px solid #e3e2e0;
         border-radius: 8px;
         padding: 20px;
-        margin-top: 16px;
+        margin-top: 8px;
         margin-bottom: 24px;
     }
     .timeline-title {
@@ -187,7 +187,7 @@ def init_db():
 
 supabase = init_db()
 
-# 3. 세션 상태 관리
+# 3. 세션 상태 관리 (클릭 타겟 과목 트래커 추가)
 session_keys = {
     'page': 'gate',
     'my_name': '',
@@ -208,7 +208,8 @@ session_keys = {
     'input_manual_text': '',
     'input_days': 7,
     'input_grade': 'A+',
-    'refresh_lock': False  
+    'refresh_lock': False,
+    'selected_timeline_sub': ''  # 사용자가 '클릭'하여 일정을 확인 중인 과목 저장고
 }
 
 for key, default in session_keys.items():
@@ -255,7 +256,6 @@ Day 2: 적외선 센서 데이터 연동 코드 정독하기
 [학습 자료]
 {kwargs['content'][:4000]}"""
                 res = model_instance.generate_content(p)
-                # 에러를 유발하던 외부 ai_plans 컬럼 동기화 코드를 완전히 제거하고 세션 상태에 직접 고정 보존합니다.
                 st.session_state.current_ai_plan = res.text
                 st.session_state.current_ai_quiz = "" 
 
@@ -403,15 +403,28 @@ elif st.session_state.page == 'dashboard':
                     st.info("현재 등록된 학습 과목이 없습니다. 아래 컴포넌트에서 과목을 추가하고 AI 맞춤 플랜을 생성해 보세요!")
 
                 # -----------------------------------------------------------------
-                # [안전 바인딩 개편] 학습 진행 상황 바로 밑에 펼쳐지는 노션식 타임라인 보드
+                # [기능 고도화] 과목 클릭 연동형 노션식 타임라인 인터페이스
                 # -----------------------------------------------------------------
                 if my_subs and st.session_state.current_ai_plan:
                     st.write("")
-                    st.markdown("### 🗓️ AI 생성 동적 타겟 타임라인 보드")
+                    st.markdown("### 🗓️ AI 생성 과목 타임라인 보드 (과목을 클릭해 일정을 확인하세요)")
                     
+                    # 과목명들로 상단 토글/클릭 버튼바 생성
+                    sub_names = [s['name'] for s in my_subs]
+                    if not st.session_state.selected_timeline_sub or st.session_state.selected_timeline_sub not in sub_names:
+                        st.session_state.selected_timeline_sub = sub_names[0]
+                        
+                    btn_cols = st.columns(len(sub_names))
+                    for b_idx, name_b in enumerate(sub_names):
+                        # 현재 선택된 과목은 버튼에 색상 힌트(primary)를 주어 가시성을 높임
+                        is_active_btn = (st.session_state.selected_timeline_sub == name_b)
+                        if btn_cols[b_idx].button(f"📁 {name_b}", key=f"t_sub_btn_{name_b}", type="primary" if is_active_btn else "secondary", use_container_width=True):
+                            st.session_state.selected_timeline_sub = name_b
+                            st.rerun()
+                    
+                    # 클릭된 과목 기준 데이터 매핑 파싱 가동
                     raw_lines = st.session_state.current_ai_plan.split('\n')
                     parsed_missions = {}
-                    
                     for row_line in raw_lines:
                         if "Day" in row_line and ":" in row_line:
                             try:
@@ -420,19 +433,18 @@ elif st.session_state.page == 'dashboard':
                                 parsed_missions[day_num] = mission_part.strip()
                             except:
                                 pass
-                    
-                    active_sub_name = st.session_state.active_subject if st.session_state.active_subject else my_subs[0]['name']
-                    matched_sub = next((s for s in my_subs if s['name'] == active_sub_name), my_subs[0])
+                                
+                    matched_sub = next((s for s in my_subs if s['name'] == st.session_state.selected_timeline_sub), my_subs[0])
                     sub_curr_day = matched_sub.get('current_day', 1)
                     sub_max_days = matched_sub.get('total_days', 7)
                     
                     st.markdown(f"""
                     <div class='timeline-container'>
-                        <div class='timeline-title'>📋 <b>{active_sub_name}</b> 과목 일차별 핵심 트래킹 라인</div>
+                        <div class='timeline-title'>🎯 <b>{st.session_state.selected_timeline_sub}</b> 핵심 마일스톤 추적 상세 로드맵</div>
                     """, unsafe_allow_html=True)
                     
                     for d_i in range(1, sub_max_days + 1):
-                        mission_desc = parsed_missions.get(d_i, "교안 핵심 개념 정독 및 시스템 진도 미션 완수하기")
+                        mission_desc = parsed_missions.get(d_i, "교안 본문 핵심 독해 및 매일 일차별 개념 검증 완료하기")
                         
                         if d_i < sub_curr_day:
                             badge_class = "badge-done"
@@ -599,27 +611,25 @@ elif st.session_state.page == 'dashboard':
                                 st.rerun()
 
             elif menu == " AI 진로 및 학업 상담":
-                col_consult_l, col_consult_r = st.columns([1, 1])
-                with col_consult_l:
-                    st.markdown("<div class='notion-header'>🔮 AI 1:1 진로 및 학업 전용 상담소</div>", unsafe_allow_html=True)
-                    user_query = st.text_area("현재 학업 설계나 진로 선택, 슬럼프 고민에 대해 자유롭게 입력해 주세요.", height=150, placeholder="예: 전공 공부가 적성에 안 맞는 것 같아요. / 학점 관리 요령을 알고 싶어요.")
-                    if st.button("멘토 AI에게 정밀 고민 솔루션 신청", type="primary", use_container_width=True):
-                        if user_query:
-                            run_ai_engine("consult", q=user_query)
+                # [상하 적층 구조 완벽 유지] 고민 입력 상자와 조언 카드가 수직으로 고정 배치됩니다.
+                st.markdown("<div class='notion-header'>🔮 AI 1:1 진로 및 학업 전용 상담소</div>", unsafe_allow_html=True)
+                user_query = st.text_area("현재 학업 설계나 진로 선택, 슬럼프 고민에 대해 자유롭게 입력해 주세요.", height=150, placeholder="예: 전공 공부가 적성에 안 맞는 것 같아요. / 학점 관리 요령을 알고 싶어요.")
+                
+                if st.button("멘토 AI에게 정밀 고민 솔루션 신청", type="primary", use_container_width=True):
+                    if user_query:
+                        run_ai_engine("consult", q=user_query)
                             
-                with col_consult_r:
-                    st.header("🔮 AI 마인드셋 상담 피드백 센터")
-                    st.divider()
-                    if st.session_state.current_ai_consult_a:
-                        st.write("📥 **최근 매칭된 멘토링 상담 카드**")
-                        st.markdown(f"""
-                        <div class='consult-container'>
-                            <div class='consult-user-q'>👤 <b>내 고민 내역:</b><br>{st.session_state.current_ai_consult_q}</div>
-                            <div class='consult-ai-a'>🤖 <b>AI 마인드 솔루션 조언:</b><br><br>{st.session_state.current_ai_consult_a.replace('\n', '<br>')}</div>
-                        </div>
-                        """, unsafe_allow_html=True)
-                    else:
-                        st.info("좌측 상담창에 고민을 타이핑한 후 솔루션 버튼을 누르시면, AI 멘토가 분석한 1:1 맞춤 피드백 보고서가 이곳에 고정 노출됩니다.")
+                if st.session_state.current_ai_consult_a:
+                    st.markdown(f"""
+                    <div class='consult-container'>
+                        <div style='font-size: 16px; font-weight: 700; color: #37352f; margin-bottom: 12px;'>🔮 AI 멘토의 1:1 비밀 맞춤 솔루션</div>
+                        <div class='consult-user-q'>👤 <b>제출한 고민 내역:</b><br>{st.session_state.current_ai_consult_q}</div>
+                        <div class='consult-ai-a'>🤖 <b>AI 마인드 조언 가이드:</b><br><br>{st.session_state.current_ai_consult_a.replace('\n', '<br>')}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.write("")
+                    st.info("💡 위 입력창에 고민을 작성하고 신청 버튼을 누르시면, AI 멘토가 분석한 1:1 맞춤 피드백 보고서가 바로 이 자리에 출력됩니다.")
 
         # =========================================================================
         # MODE 2: 몰입 모드
