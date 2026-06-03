@@ -106,6 +106,7 @@ st.markdown("""
         border: 1px solid #e3e2e0;
         border-radius: 8px;
         padding: 20px;
+        margin-top: 20px;
         margin-bottom: 16px;
     }
     .consult-user-q {
@@ -384,13 +385,11 @@ elif st.session_state.page == 'dashboard':
                             supabase.table("team").update({"subjects": all_s}).eq("invite_code", st.session_state.invite_code).execute()
                             st.rerun()
                             
-                    # [기능 고도화] 기존에 등록된 과목 완전 파괴 삭제 컴포넌트 배치
                     if my_subs:
                         st.write("")
                         st.markdown("#### 🗑️ 등록된 과목 보드 삭제")
                         delete_target = st.selectbox("보드에서 삭제할 과목 선택", [s['name'] for s in my_subs], key="delete_selector")
                         if st.button("선택한 과목 영구 삭제", type="primary", use_container_width=True):
-                            # 리스트 컴프리헨션을 통한 타겟 과목 축출
                             updated_subs = [s for s in my_subs if s['name'] != delete_target]
                             all_s = data['subjects']
                             all_s[st.session_state.my_name] = updated_subs
@@ -515,27 +514,26 @@ elif st.session_state.page == 'dashboard':
                                 st.rerun()
 
             elif menu == " AI 진로 및 학업 상담":
-                col_consult_l, col_consult_r = st.columns([1, 1])
-                with col_consult_l:
-                    st.markdown("<div class='notion-header'>🔮 AI 1:1 진로 및 학업 전용 상담소</div>", unsafe_allow_html=True)
-                    user_query = st.text_area("현재 학업 설계나 진로 선택, 슬럼프 고민에 대해 자유롭게 입력해 주세요.", height=150, placeholder="예: 전공 공부가 적성에 안 맞는 것 같아요. / 학점 관리 요령을 알고 싶어요.")
-                    if st.button("멘토 AI에게 정밀 고민 솔루션 신청", type="primary", use_container_width=True):
-                        if user_query:
-                            run_ai_engine("consult", q=user_query)
+                # [레이아웃 전면 수정] 노트북과 모바일 가독성을 저해하던 좌우 column 분할을 없앴습니다.
+                st.markdown("<div class='notion-header'>🔮 AI 1:1 진로 및 학업 전용 상담소</div>", unsafe_allow_html=True)
+                user_query = st.text_area("현재 학업 설계나 진로 선택, 슬럼프 고민에 대해 자유롭게 입력해 주세요.", height=150, placeholder="예: 전공 공부가 적성에 안 맞는 것 같아요. / 학점 관리 요령을 알고 싶어요.")
+                
+                if st.button("멘토 AI에게 정밀 고민 솔루션 신청", type="primary", use_container_width=True):
+                    if user_query:
+                        run_ai_engine("consult", q=user_query)
                             
-                with col_consult_r:
-                    st.header("🔮 AI 마인드셋 상담 피드백 센터")
-                    st.divider()
-                    if st.session_state.current_ai_consult_a:
-                        st.write("📥 **최근 매칭된 멘토링 상담 카드**")
-                        st.markdown(f"""
-                        <div class='consult-container'>
-                            <div class='consult-user-q'>👤 <b>내 고민 내역:</b><br>{st.session_state.current_ai_consult_q}</div>
-                            <div class='consult-ai-a'>🤖 <b>AI 마인드 솔루션 조언:</b><br><br>{st.session_state.current_ai_consult_a.replace('\n', '<br>')}</div>
-                        </div>
-                        """, unsafe_allow_html=True)
-                    else:
-                        st.info("좌측 상담창에 고민을 타이핑한 후 솔루션 버튼을 누르시면, AI 멘토가 분석한 1:1 맞춤 피드백 보고서가 이곳에 고정 노출됩니다.")
+                # [상하 종형 배치 완료] 고민 입력 양식 바로 밑(아래)에 단정하게 피드백 카드가 노출됩니다.
+                if st.session_state.current_ai_consult_a:
+                    st.markdown(f"""
+                    <div class='consult-container'>
+                        <div style='font-size: 16px; font-weight: 700; color: #37352f; margin-bottom: 12px;'>🔮 AI 멘토의 1:1 비밀 맞춤 솔루션</div>
+                        <div class='consult-user-q'>👤 <b>제출한 고민 내역:</b><br>{st.session_state.current_ai_consult_q}</div>
+                        <div class='consult-ai-a'>🤖 <b>AI 마인드 조언 가이드:</b><br><br>{st.session_state.current_ai_consult_a.replace('\n', '<br>')}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.write("")
+                    st.info("💡 위 입력창에 고민을 작성하고 신청 버튼을 누르시면, AI 멘토의 정밀 피드백 성적 보고서가 바로 이 자리에 출력됩니다.")
 
         # =========================================================================
         # MODE 2: 몰입 모드
@@ -718,7 +716,7 @@ elif st.session_state.page == 'dashboard':
                 st.write(f"**[최종 고사 2번 문항]** : {st.session_state.user_answers.get('q2', '미기입')}")
                 st.write(f"**[최종 고사 3번 문항]** : {st.session_state.user_answers.get('q3', '미기입')}")
             with tab_final_sol:
-                if st.session_state.current_ai_quiz: fst.write(st.session_state.current_ai_quiz)
+                if st.session_state.current_ai_quiz: st.write(st.session_state.current_ai_quiz)
                 
             st.divider()
             if st.button("🔄 최종 성적표 수령 완료 및 대시보드로 복귀", type="primary", use_container_width=True):
