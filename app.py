@@ -8,7 +8,7 @@ import time
 from streamlit_autorefresh import st_autorefresh
 from PyPDF2 import PdfReader
 
-# 1. 노션 스타일 및 몰입/시험 모드 커스텀 CSS 주입
+# 1. 노션 스타일 및 몰입/시험/상담 모드 커스텀 CSS 주입
 st.markdown("""
 <style>
     .stApp {
@@ -96,6 +96,29 @@ st.markdown("""
         text-transform: uppercase;
         letter-spacing: 1px;
     }
+    /* 진로상담 피드백 전용 카드 디자인 */
+    .consult-container {
+        background-color: #fbfbfa;
+        border: 1px solid #e3e2e0;
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 16px;
+    }
+    .consult-user-q {
+        font-size: 14px;
+        font-weight: 600;
+        color: #4b5563;
+        background-color: #f3f4f6;
+        padding: 10px 14px;
+        border-radius: 6px;
+        margin-bottom: 14px;
+    }
+    .consult-ai-a {
+        font-size: 14px;
+        color: #1f2937;
+        line-height: 1.6;
+        padding-left: 4px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -106,7 +129,7 @@ def init_db():
 
 supabase = init_db()
 
-# 3. 세션 상태 관리 (리프레시 락 컨트롤 플래그 추가)
+# 3. 세션 상태 관리
 session_keys = {
     'page': 'gate',
     'my_name': '',
@@ -122,11 +145,12 @@ session_keys = {
     'user_answers': {},          
     'current_ai_plan': '',
     'current_ai_quiz': '',
-    'current_ai_consult': '',
+    'current_ai_consult_q': '', # 사용자가 마지막으로 질문한 상담 내용 고정 보존
+    'current_ai_consult_a': '', # AI가 답변한 멘토링 아카이브 고정 보존
     'input_manual_text': '',
     'input_days': 7,
     'input_grade': 'A+',
-    'refresh_lock': False  # [버그 해결] AI 구동 및 내보내기 시 리프레시를 잠그는 보안 락
+    'refresh_lock': False  
 }
 
 for key, default in session_keys.items():
@@ -145,7 +169,6 @@ def extract_text(uploaded_file):
 
 # 5. 제미나이 AI 백엔드 오케스트레이션 함수
 def run_ai_engine(prompt_type, **kwargs):
-    # AI 통신 시작 시 무조건 리프레시 락을 걸어 2초 타이머가 간섭하지 못하게 방어합니다.
     st.session_state.refresh_lock = True
     with st.spinner("AI가 핵심 데이터를 분석하고 있습니다... 📝"):
         try:
@@ -172,7 +195,6 @@ def run_ai_engine(prompt_type, **kwargs):
                 st.session_state.current_ai_plan = res.text
                 st.session_state.current_ai_quiz = "" 
                 
-                # DB 영구 보존용 AI 플랜 동기화
                 res_db = supabase.table("team").select("ai_plans").eq("invite_code", st.session_state.invite_code).execute()
                 current_plans = res_db.data[0].get('ai_plans', {}) if res_db.data else {}
                 if not current_plans: current_plans = {}
@@ -189,11 +211,11 @@ def run_ai_engine(prompt_type, **kwargs):
                 st.session_state.current_ai_quiz = res.text
 
             elif prompt_type == "consult":
-                p = f"학업 고민 및 상담 내용입니다: {kwargs['q']}\n학생의 현재 상황에 공감하며 동기부여가 될 수 있는 노션 가이드 톤의 정돈된 조언을 제공해주세요."
+                p = f"학업 및 진로 고민 상담 내용입니다: {kwargs['q']}\n학생의 상황에 진심으로 공감하며 향후 진로 설계와 동기부여에 도움이 될 수 있는 구체적인 가이드와 솔루션을 제공해주세요."
                 res = model_instance.generate_content(p)
-                st.session_state.current_ai_consult = res.text
+                st.session_state.current_ai_consult_q = kwargs['q']
+                st.session_state.current_ai_consult_a = res.text
             
-            # AI 처리가 완전히 끝나면 락을 해제하고 리런합니다.
             st.session_state.refresh_lock = False
             st.rerun()
                 
@@ -259,7 +281,6 @@ elif st.session_state.page == 'dashboard':
     if not st.session_state.invite_code: 
         st.session_state.page = 'gate'; st.rerun()
 
-    # [버그 수정] 리프레시 락 플래그가 False(대기 상태)일 때만 실시간 2초 타이머를 구동합니다.
     if not st.session_state.refresh_lock:
         st_autorefresh(interval=2000, key="global_refresh_engine")
     
@@ -271,26 +292,24 @@ elif st.session_state.page == 'dashboard':
         if db_plans.get(st.session_state.my_name) and not st.session_state.current_ai_plan:
             st.session_state.current_ai_plan = db_plans.get(st.session_state.my_name)
 
-        # 사이드바 노션 스타일 제어 패널
         st.sidebar.markdown(f"<div class='notion-header' style='font-size:20px;'>📂 {data['team_name']}</div>", unsafe_allow_html=True)
         st.sidebar.markdown(f"<div class='notion-sub'>사용자: {st.session_state.my_name} 님</div>", unsafe_allow_html=True)
         
-        # 상시 모드일 때만 메뉴 선택 활성화
         if st.session_state.current_mode == 'dashboard':
-            menu = st.sidebar.radio("내비게이션", [" 내 학습 보드 (메인)", "👥 팀원 실시간 페이스", " 공유 게시판", " AI 마인드셋 상담"])
+            menu = st.sidebar.radio("내비게이션", [" 내 학습 보드 (메인)", "👥 팀원 실시간 페이스", " 공유 게시판", " AI 진로 및 학업 상담"])
         else:
             st.sidebar.warning("⚠️ 현재 공부/시험이 진행 중입니다. 메뉴 이동이 제한됩니다.")
             menu = " 내 학습 보드 (메인)"
             
         if st.sidebar.button("🚪 워크스페이스 로그아웃"):
-            st.session_state.update({"invite_code": "", "page": "gate", "current_mode": "dashboard", "current_ai_plan": "", "current_ai_quiz": "", "current_ai_consult": "", "timer_running": False})
+            st.session_state.update({"invite_code": "", "page": "gate", "current_mode": "dashboard", "current_ai_plan": "", "current_ai_quiz": "", "current_ai_consult_q": "", "current_ai_consult_a": "", "timer_running": False})
             st.rerun()
             
         with st.sidebar.expander("🎫 워크스페이스 초대코드"):
             st.code(data['invite_code'])
 
         # =========================================================================
-        # MODE 1: 대시보드 모드 (상시 전 과목 진행도 통합 관리 보드)
+        # MODE 1: 대시보드 모드
         # =========================================================================
         if st.session_state.current_mode == 'dashboard':
             if menu == " 내 학습 보드 (메인)":
@@ -299,7 +318,6 @@ elif st.session_state.page == 'dashboard':
                 
                 my_subs = data['subjects'].get(st.session_state.my_name, [])
                 
-                # [상단 배치] 등록된 모든 과목 한꺼번에 시각화하는 노션식 보드 리스트
                 if my_subs:
                     st.markdown("### 📂 현재 학습 진행 상황")
                     cols = st.columns(3)
@@ -410,7 +428,6 @@ elif st.session_state.page == 'dashboard':
 
             elif menu == "👥 팀원 실시간 페이스":
                 st.markdown("<div class='notion-header'>👥 스터디 팀원 실시간 러닝 페이스</div>", unsafe_allow_html=True)
-                st.markdown("<div class='notion-sub'>함께 몰입하는 팀원들의 현재 모드, 학습 상태 및 오늘 누적 공부 시간을 실시간으로 공유합니다.</div>", unsafe_allow_html=True)
                 
                 room_owner = data['members'][0]['name'] if data['members'] else ""
                 is_i_am_owner = (st.session_state.my_name == room_owner)
@@ -428,13 +445,12 @@ elif st.session_state.page == 'dashboard':
                     </div>
                     """, unsafe_allow_html=True)
                     
-                    # [버그 완전 수정 및 강제 락 처리]
                     if is_i_am_owner and m_block['name'] != st.session_state.my_name:
                         if st.button(f"🗑️ {m_block['name']} 강제 내보내기", key=f"kick_btn_{m_block['name']}"):
-                            # 내보내기가 실행되는 순간 동기화 리프레시 타이머를 즉시 정지시킵니다.
                             st.session_state.refresh_lock = True
                             
-                            fresh_res = supabase.table("team").select("members, subjects, ai_plans").eq("invite_code", st.session_state.invite_code).execute()
+                            # 데이터 식별 공백 제거 수정 완료
+                            fresh_res = supabase.table("team").select("members,subjects,ai_plans").eq("invite_code", st.session_state.invite_code).execute()
                             if fresh_res.data:
                                 f_data = fresh_res.data[0]
                                 updated_members = [m for m in f_data['members'] if m['name'] != m_block['name']]
@@ -451,7 +467,6 @@ elif st.session_state.page == 'dashboard':
                                     "ai_plans": updated_ai_plans
                                 }).eq("invite_code", st.session_state.invite_code).execute()
                                 
-                                # 수파베이스에 처리가 완벽히 끝나면 안전하게 락을 풀고 강제 리런시킵니다.
                                 st.session_state.refresh_lock = False
                                 st.rerun()
 
@@ -482,20 +497,55 @@ elif st.session_state.page == 'dashboard':
                                 supabase.table("team").update({"posts": current_posts}).eq("invite_code", st.session_state.invite_code).execute()
                                 st.rerun()
 
-            elif menu == " AI 마인드셋 상담":
-                st.markdown("<div class='notion-header'>🔮 AI 1:1 마인드셋 클리닉</div>", unsafe_allow_html=True)
-                user_query = st.text_area("현재 겪고 있는 슬럼프나 학업 피로도, 공부 방향성에 대해 편하게 털어놓으세요.", height=150)
-                if st.button("멘토 AI에게 정밀 솔루션 구하기", type="primary"):
+            elif menu == " AI 진로 및 학업 상담":
+                st.markdown("<div class='notion-header'>🔮 AI 1:1 진로 및 학업 전용 상담소</div>", unsafe_allow_html=True)
+                user_query = st.text_area("현재 학업 설계나 진로 선택, 슬럼프 고민에 대해 자유롭게 입력해 주세요.", height=150, placeholder="예: 전공 공부가 적성에 안 맞는 것 같아요. / 학점 관리 요령을 알고 싶어요.")
+                if st.button("멘토 AI에게 정밀 고민 솔루션 신청", type="primary", use_container_width=True):
                     if user_query:
                         run_ai_engine("consult", q=user_query)
+
+        # 우측 결과단 가이드 보드 분할 렌더링
+        with col_r:
+            if menu in [" 내 학습 보드 (메인)", "👥 팀원 실시간 페이스", " 공유 게시판"]:
+                st.header("🤖 AI 학습 일정 검증 센터")
+                st.divider()
                 
-                if st.session_state.current_ai_consult:
+                if st.session_state.current_ai_plan:
+                    st.write("📋 **나의 맞춤형 일차별 계획 리스트**")
+                    lines = st.session_state.current_ai_plan.split('\n')
+                    for line in lines:
+                        if not line.strip(): continue
+                        
+                        if menu == " 내 학습 보드 (메인)" and f"Day {chosen_day}" in line:
+                            st.markdown(f"""<div class='active-plan-card'>{line}</div>""", unsafe_allow_html=True)
+                        else:
+                            st.markdown(f"""<div class='plan-card'>{line}</div>""", unsafe_allow_html=True)
+                else:
+                    st.info("좌측 콘솔에서 자료 입력 후 AI 맞춤 일정을 설계하면 여기에 영구 보존됩니다.")
+                
+                if st.session_state.current_ai_quiz:
                     st.divider()
-                    st.markdown("#### 📥 AI 마인드 솔루션 피드백")
-                    st.info(st.session_state.current_ai_consult)
+                    st.subheader("📝 목표 성적 맞춤형 실전 검증 퀴즈")
+                    st.write(st.session_state.current_ai_quiz)
+
+            # [기능 고도화] 우측 화면에 진로 및 학업 전용 인공지능 상담 피드백 칸을 독립적으로 신설 배치
+            elif menu == " AI 진로 및 학업 상담":
+                st.header("🔮 AI 마인드셋 상담 피드백 센터")
+                st.divider()
+                
+                if st.session_state.current_ai_consult_a:
+                    st.write("📥 **최근 매칭된 멘토링 상담 카드**")
+                    st.markdown(f"""
+                    <div class='consult-container'>
+                        <div class='consult-user-q'>👤 <b>내 고민 내역:</b><br>{st.session_state.current_ai_consult_q}</div>
+                        <div class='consult-ai-a'>🤖 <b>AI 마인드 솔루션 조언:</b><br><br>{st.session_state.current_ai_consult_a.replace('\n', '<br>')}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.info("좌측 상담창에 고민을 타이핑한 후 솔루션 버튼을 누르시면, AI 멘토가 분석한 1:1 맞춤 피드백 보고서가 이곳에 고정 노출됩니다.")
 
         # =========================================================================
-        # MODE 2: 몰입 모드 
+        # MODE 2: 몰입 모드
         # =========================================================================
         elif st.session_state.current_mode == 'focus':
             st.markdown(f"<div class='notion-header'>⚡ IMMERSION FOCUS MODE</div>", unsafe_allow_html=True)
