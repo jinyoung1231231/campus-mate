@@ -475,26 +475,45 @@ elif st.session_state.page == 'dashboard':
                 st.divider()
 
                 c_left, c_right = st.columns([1, 1])
-                with c_left:
-                    st.markdown("#### ➕ 신규 과목 및 주요 학사 일정 등록")
-                    ns = st.text_input("새로 추가할 과목명", placeholder="예: TOEIC 영어, 로봇공학개론")
-                    ntask = st.text_input("과제 제출일 설정", placeholder="예: 3주차 금요일, 매주 일요일")
-                    nexam = st.text_input("시험 일정/주차 설정", placeholder="예: 8주차 중간고사, Day 7 테스트")
-                    
-                    if st.button("과목 보드에 등록", use_container_width=True):
-                        if ns:
-                            my_subs.append({
-                                "name": ns, 
-                                "total_days": 7, 
-                                "current_day": 1,
-                                "task_week": ntask if ntask else "3주차",
-                                "exam_week": nexam if nexam else "8주차 중간고사"
-                            })
-                            all_s = data['subjects']
-                            all_s[st.session_state.my_name] = my_subs
-                            supabase.table("team").update({"subjects": all_s}).eq("invite_code", st.session_state.invite_code).execute()
-                            st.rerun()
-                            
+# [위의 import 문과 CSS 부분은 그대로 유지하세요]
+
+# 수정이 필요한 파일 업로드 구간입니다.
+# 기존의 up_file = st.file_uploader(...) 로직을 아래로 교체하세요.
+
+                with c_right:
+                    if my_subs:
+                        target_sub = st.selectbox("⚙️ AI 관리 타겟 과목 선택", [s['name'] for s in my_subs])
+                        st.session_state.input_manual_text = st.text_area("학습 교안 본문 및 AI 세부 지시문 입력", value=st.session_state.input_manual_text, height=100, placeholder="여기에 요약할 텍스트를 붙여넣거나 세부 지시 사항을 입력하세요.")
+                        
+                        # [여기만 수정: accept_multiple_files=True 옵션 추가]
+                        up_files = st.file_uploader("교안 파일 로드 (PDF/TXT) - 여러 개 선택 가능", type=['pdf', 'txt'], key="uploader_dash", accept_multiple_files=True)
+                        
+                        # [여기만 수정: 리스트를 루프로 돌려서 텍스트 통합]
+                        extracted = "".join([extract_text(f) for f in up_files]) if up_files else ""
+                        combined_content = f"{st.session_state.input_manual_text}\n{extracted}".strip()
+                        
+                        cd1, cd2 = st.columns(2)
+                        days = cd1.number_input("목표 학습 기간 (일)", 1, 100, value=st.session_state.input_days)
+                        st.session_state.input_days = days
+                        grade = cd2.selectbox("달성 목표 학점 레벨", ["A+", "B+", "Pass"], index=["A+", "B+", "Pass"].index(st.session_state.input_grade))
+                        st.session_state.input_grade = grade
+                        
+                        if st.button("🤖 AI 맞춤형 일차별 계획 설계", type="primary", use_container_width=True):
+                            if combined_content:
+                                for s in my_subs:
+                                    if s['name'] == target_sub:
+                                        s['total_days'] = days
+                                        s['current_day'] = 1
+                                
+                                ml = data['members']
+                                for m_block in ml:
+                                    if m_block['name'] == st.session_state.my_name: 
+                                        m_block['grade'] = grade
+                                        m_block['days'] = f"{days}일"
+                                supabase.table("team").update({"members": ml, "subjects": data['subjects']}).eq("invite_code", st.session_state.invite_code).execute()
+                                run_ai_engine("plan", sub_name=target_sub, grade=grade, days=days, content=combined_content)
+                            else:
+                                st.warning("일정을 설계할 텍스트 본문이나 지시사항을 채워넣어 주세요.")
                     if my_subs:
                         st.write("")
                         st.markdown("#### 🗑️ 등록된 과목 보드 삭제")
