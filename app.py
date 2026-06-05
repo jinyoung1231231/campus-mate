@@ -489,7 +489,27 @@ elif st.session_state.page == 'dashboard':
                 c_left, c_right = st.columns([1, 1])
 
                 with c_left:
+                    st.markdown("### ➕ 신규 과목 및 주요 학사 일정 등록")
+                    ns = st.text_input("새로 추가할 과목명", placeholder="예: TOEIC 영어, 로봇공학개론")
+                    ntask = st.text_input("과제 제출일 설정", placeholder="예: 3주차 금요일, 매주 일요일")
+                    nexam = st.text_input("시험 일정/주차 설정", placeholder="예: 8주차 중간고사, Day 7 테스트")
+                    
+                    if st.button("과목 보드에 등록", use_container_width=True):
+                        if ns:
+                            my_subs.append({
+                                "name": ns, 
+                                "total_days": 7, 
+                                "current_day": 1,
+                                "task_week": ntask if ntask else "3주차",
+                                "exam_week": nexam if nexam else "8주차 중간고사"
+                            })
+                            all_s = data['subjects']
+                            all_s[st.session_state.my_name] = my_subs
+                            supabase.table("team").update({"subjects": all_s}).eq("invite_code", st.session_state.invite_code).execute()
+                            st.rerun()
+                            
                     if my_subs:
+                        st.write("")
                         st.markdown("### 🗑️ 등록된 과목 보드 삭제")
                         delete_target = st.selectbox("보드에서 삭제할 과목 선택", [s['name'] for s in my_subs], key="delete_selector")
                         if st.button("선택한 과목 영구 삭제", type="primary", use_container_width=True):
@@ -584,7 +604,7 @@ elif st.session_state.page == 'dashboard':
                         <span style='font-size:16px; font-weight:700;'>{owner_badge} : {m_block['name']}님</span> | 
                         <span style='color:#238387; font-weight:600;'>현재 상태: {m_block['status']}</span>
                         <div style='margin-top:8px; font-size:13px; color:#7c7b77;'>
-                            🎯 목표 레벨: {m_block.get('grade', '-')} | 설정 기간: {m_block.get('days', '-')} | ⏱️ 오늘 누적 집중 시간: <b>{m_block.get('total_time', 0)}분</b>
+                            🎯 목표 레벨: {m_block.get('grade', '-')} | 설정 기간: {m_block.get('days', '-')} | ⏱️ 오늘 누적 집중 시간: {m_block.get('total_time', 0)}분
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
@@ -628,8 +648,8 @@ elif st.session_state.page == 'dashboard':
                     st.markdown(f"""
                     <div class='consult-container'>
                         <div style='font-size: 16px; font-weight: 700; color: #37352f; margin-bottom: 12px;'>🔮 AI 멘토의 1:1 비밀 맞춤 솔루션</div>
-                        <div class='consult-user-q'>👤 <b>제출한 고민 내역:</b><br>{st.session_state.current_ai_consult_q}</div>
-                        <div class='consult-ai-a'>🤖 <b>AI 마인드 조언 가이드:</b><br><br>{st.session_state.current_ai_consult_a.replace('\n', '<br>')}</div>
+                        <div class='consult-user-q'>👤 제출한 고민 내역:<br>{st.session_state.current_ai_consult_q}</div>
+                        <div class='consult-ai-a'>🤖 AI 마인드 조언 가이드:<br><br>{st.session_state.current_ai_consult_a.replace('\n', '<br>')}</div>
                     </div>
                     """, unsafe_allow_html=True)
                 else:
@@ -777,9 +797,9 @@ elif st.session_state.page == 'dashboard':
             
             tab_ans, tab_solution = st.tabs(["📥 내가 마킹한 OMR 제출본 확인", "🔍 AI 출제 정답 및 분석 해설지"])
             with tab_ans:
-                st.write(f"**[1번 답안]** : {st.session_state.user_answers.get('q1', '미기입')}")
-                st.write(f"**[2번 답안]** : {st.session_state.user_answers.get('q2', '미기입')}")
-                st.write(f"**[3번 문항 답변]** : {st.session_state.user_answers.get('q3', '미기입')}")
+                st.write(f"[1번 답안] : {st.session_state.user_answers.get('q1', '미기입')}")
+                st.write(f"[2번 답안] : {st.session_state.user_answers.get('q2', '미기입')}")
+                st.write(f"[3번 문항 답변] : {st.session_state.user_answers.get('q3', '미기입')}")
             with tab_solution:
                 if st.session_state.current_ai_quiz: st.write(st.session_state.current_ai_quiz)
             
@@ -794,7 +814,7 @@ elif st.session_state.page == 'dashboard':
         # =========================================================================
         elif st.session_state.current_mode == 'result':
             st.markdown("<div class='notion-header'>🎓 COURSE COMPLETION OFFICIAL REPORT</div>", unsafe_allow_html=True)
-            st.markdown(f"<div class='notion-sub'>축하합니다! <b>{st.session_state.active_subject}</b> 과목의 모든 일차 학습 과정과 최종 평가가 공식 종료되었습니다.</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='notion-sub'>축하합니다! {st.session_state.active_subject} 과목의 모든 일차 학습 과정과 최종 평가가 공식 종료되었습니다.</div>", unsafe_allow_html=True)
             
             ans_len = len(st.session_state.user_answers.get('q1', '')) + len(st.session_state.user_answers.get('q2', ''))
             target_user_grade = data['members'][0].get('grade', 'A+') if data['members'] else 'A+'
@@ -817,9 +837,9 @@ elif st.session_state.page == 'dashboard':
             st.write("")
             tab_final_ans, tab_final_sol = st.tabs(["📥 최종 졸업 고사 제출 답안 확인", "🔍 출제 오답 정고표 분석 해설지"])
             with tab_final_ans:
-                st.write(f"**[최종 고사 1번 문항]** : {st.session_state.user_answers.get('q1', '미기입')}")
-                st.write(f"**[최종 고사 2번 문항]** : {st.session_state.user_answers.get('q2', '미기입')}")
-                st.write(f"**[최종 고사 3번 문항]** : {st.session_state.user_answers.get('q3', '미기입')}")
+                st.write(f"[최종 고사 1번 문항] : {st.session_state.user_answers.get('q1', '미기입')}")
+                st.write(f"[최종 고사 2번 문항] : {st.session_state.user_answers.get('q2', '미기입')}")
+                st.write(f"[최종 고사 3번 문항] : {st.session_state.user_answers.get('q3', '미기입')}")
             with tab_final_sol:
                 if st.session_state.current_ai_quiz: st.write(st.session_state.current_ai_quiz)
                 
