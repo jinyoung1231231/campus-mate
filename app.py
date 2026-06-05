@@ -282,12 +282,23 @@ def run_ai_engine(prompt_type, **kwargs):
                 st.session_state.current_ai_quiz = "" 
 
             elif prompt_type == "quiz":
-                p = f"""아래 학습 자료를 바탕으로, 사용자의 목표 학점인 [{kwargs['grade']}] 수준에 맞는 핵심 변별력 퀴즈 3개를 출제해주세요.
+                # 🔥 [환각 방지 & 주관식/서술형 강력 강제 프롬프트 적용]
+                p = f"""반드시 아래에 제공된 [학습 자료]만을 엄격하게 기반으로, '{kwargs.get('sub_name', '해당')}' 과목에 대한 핵심 변별력 퀴즈 3개를 출제해주세요. 
+주어진 자료에 없는 외부 지식이나 무관한 내용은 절대 섞지 마세요.
 
-[작성 수칙 - 매우 중요]
-1. 반드시 '문제 1:', '문제 2:', '문제 3:' 순서대로 3개의 문제 내용만 먼저 쭉 작성하세요. 중간에 절대로 정답이나 해설을 적지 마세요.
-2. 3문제가 모두 끝난 후, 정확히 '[정답절취선]' 이라는 텍스트를 딱 한 번만 넣으세요.
-3. '[정답절취선]' 아래에 1, 2, 3번 문항의 정답과 상세 해설을 모아서 배치해 주세요.
+[작성 수칙 - 매우 중요 (규칙 위반 시 시스템 오류 발생)]
+1. 문제 유형: 문제 1과 문제 2는 '단답형/주관식'으로, 문제 3은 '서술형'으로 출제하세요.
+2. 문제 내용 안에는 절대 정답이나 해설을 포함하지 마세요. (시험지가 유출되면 안 됩니다.)
+3. 반드시 아래의 [출제 양식] 텍스트 구조를 100% 그대로 복사해서 내용만 채워 작성하세요.
+
+[출제 양식]
+문제 1. (여기에 단답형/주관식 문제 질문만 작성)
+문제 2. (여기에 단답형/주관식 문제 질문만 작성)
+문제 3. (여기에 서술형 문제 질문만 작성)
+[정답절취선]
+1번 정답: (여기에 정답) / 해설: (여기에 해설)
+2번 정답: (여기에 정답) / 해설: (여기에 해설)
+3번 모범 답안: (여기에 핵심 키워드가 포함된 서술형 모범 답안) / 해설: (여기에 해설)
 
 [학습 자료]
 {kwargs['content'][:4000]}"""
@@ -574,7 +585,7 @@ elif st.session_state.page == 'dashboard':
                             st.session_state.active_day = chosen_day
                             st.session_state.current_mode = 'focus'
                             
-                            st.session_state.saved_study_content = combined_content if 'combined_content' in locals() else "기본 학업 개념"
+                            st.session_state.saved_study_content = combined_content if 'combined_content' in locals() and combined_content.strip() else "기본 학업 개념"
                             
                             st.session_state.timer_running = True
                             st.session_state.start_time = time.time()
@@ -671,12 +682,10 @@ elif st.session_state.page == 'dashboard':
             
             st.markdown("### 🔲 오늘의 학습 완수 체크리스트")
             
-            # 🔥 [공부 화면 체크리스트 버그 완벽 해결] 스마트 텍스트 추출 로직 이식
             target_day_text = ""
             if st.session_state.current_ai_plan:
                 lines = st.session_state.current_ai_plan.split('\n')
                 for line in lines:
-                    # 1순위: 과목명과 세미콜론이 명확하게 있는 줄에서 미션만 추출
                     if st.session_state.active_subject in line and ":" in line:
                         try:
                             day_part, mission_part = line.split(":", 1)
@@ -686,13 +695,11 @@ elif st.session_state.page == 'dashboard':
                         except:
                             pass
                             
-                # 2순위: AI가 혹시 과목명을 안 쓰고 Day 숫자만 써놨을 경우 대비
                 if not target_day_text.strip():
                     for line in lines:
                         if (f"Day {st.session_state.active_day}" in line or f"Day{st.session_state.active_day}" in line) and ":" in line:
                             target_day_text += line.split(":", 1)[1].strip() + "\n"
             
-            # 최후의 방어선: 데이터가 아예 날아갔거나 못 찾았을 경우 기본값
             if not target_day_text.strip():
                 target_day_text = f"Day {st.session_state.active_day}: 교안 핵심 메인 개념 정독 및 서론 파트 노트 정리 수반"
 
@@ -722,8 +729,10 @@ elif st.session_state.page == 'dashboard':
                 
                 target_user_grade = next((m_block.get('grade', 'B+') for m_block in data['members'] if m_block['name'] == st.session_state.my_name), 'B+')
                 
+                # 🔥 [증발 방지된 데이터 연결]
                 study_data = st.session_state.saved_study_content if st.session_state.get('saved_study_content') else "기본 학업 개념"
-                run_ai_engine("quiz", grade=target_user_grade, content=study_data)
+                
+                run_ai_engine("quiz", grade=target_user_grade, content=study_data, sub_name=st.session_state.active_subject)
                 st.rerun()
 
         # =========================================================================
@@ -756,6 +765,9 @@ elif st.session_state.page == 'dashboard':
                 if st.session_state.current_ai_quiz:
                     if "[정답절취선]" in st.session_state.current_ai_quiz:
                         quiz_q = st.session_state.current_ai_quiz.split("[정답절취선]")[0]
+                        st.write(quiz_q.strip())
+                    elif "1번 정답" in st.session_state.current_ai_quiz:
+                        quiz_q = st.session_state.current_ai_quiz.split("1번 정답")[0]
                         st.write(quiz_q.strip())
                     else:
                         st.write(st.session_state.current_ai_quiz) 
@@ -817,7 +829,7 @@ elif st.session_state.page == 'dashboard':
                 st.write(f"**[3번 문항 답변]** : {st.session_state.user_answers.get('q3', '미기입')}")
             with tab_solution:
                 if st.session_state.current_ai_quiz: 
-                    st.write(st.session_state.current_ai_quiz)
+                    st.write(st.session_state.current_ai_quiz.replace("[정답절취선]", "\n\n--- 🔍 **정답 및 해설** ---\n"))
             
             if st.button("🔄 검증 완료 및 대시보드로 돌아가기", type="primary", use_container_width=True):
                 st.session_state.current_mode = 'dashboard'
@@ -858,7 +870,7 @@ elif st.session_state.page == 'dashboard':
                 st.write(f"**[최종 고사 3번 문항]** : {st.session_state.user_answers.get('q3', '미기입')}")
             with tab_final_sol:
                 if st.session_state.current_ai_quiz: 
-                    st.write(st.session_state.current_ai_quiz)
+                    st.write(st.session_state.current_ai_quiz.replace("[정답절취선]", "\n\n--- 🔍 **정답 및 해설** ---\n"))
                 
             st.divider()
             if st.button("🔄 최종 성적표 수령 완료 및 대시보드로 복귀", type="primary", use_container_width=True):
