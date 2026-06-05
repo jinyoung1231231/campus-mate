@@ -5,7 +5,7 @@ import random
 import string
 from datetime import datetime
 import time
-import gc  # [메모리 최적화] 가비지 컬렉터 라이브러리 추가
+import gc
 from streamlit_autorefresh import st_autorefresh
 from PyPDF2 import PdfReader
 
@@ -236,7 +236,7 @@ for key, default in session_keys.items():
     if key not in st.session_state:
         st.session_state[key] = default
 
-# 4. 파일 본문 텍스트 파싱 유틸리티 [메모리 최적화: 캐싱 적용]
+# 4. 파일 본문 텍스트 파싱 유틸리티 (캐싱 추가)
 @st.cache_data(max_entries=5, ttl=300)
 def extract_text(uploaded_file):
     try:
@@ -295,7 +295,7 @@ def run_ai_engine(prompt_type, **kwargs):
                 st.session_state.current_ai_consult_q = kwargs['q']
                 st.session_state.current_ai_consult_a = res.text
             
-            # [메모리 최적화] AI 작업 종료 후 대용량 프롬프트 메모리 해제
+            # AI 호출 후 메모리 정리
             gc.collect()
 
             st.session_state.refresh_lock = False
@@ -361,8 +361,9 @@ elif st.session_state.page == 'dashboard':
     if not st.session_state.invite_code: 
         st.session_state.page = 'gate'; st.rerun()
 
+    # [타이머 비상 해결!] 1초 단위 업데이트 & 100번 제한 해제(무한 구동)
     if not st.session_state.refresh_lock:
-        st_autorefresh(interval=2000, key="global_refresh_engine")
+        st_autorefresh(interval=1000, limit=999999, key="global_refresh_engine")
     
     res = supabase.table("team").select("*").eq("invite_code", st.session_state.invite_code).execute()
     data = res.data[0] if res.data else None
@@ -498,6 +499,7 @@ elif st.session_state.page == 'dashboard':
                         target_sub = st.selectbox("AI 관리 타겟 과목 선택", [s['name'] for s in my_subs])
                         st.session_state.input_manual_text = st.text_area("학습 교안 본문 및 AI 세부 지시문 입력", value=st.session_state.input_manual_text, height=100, placeholder="여기에 요약할 텍스트를 붙여넣거나 세부 지시 사항을 입력하세요.")
                         
+                        # 다중 파일 업로드 적용
                         up_files = st.file_uploader(f"{target_sub} 자료 업로드 (여러 개 선택 가능)", type=['pdf', 'txt'], key="uploader_dash", accept_multiple_files=True)
                         
                         extracted = "".join([extract_text(f) for f in up_files]) if up_files else ""
@@ -524,7 +526,7 @@ elif st.session_state.page == 'dashboard':
                                 supabase.table("team").update({"members": ml, "subjects": data['subjects']}).eq("invite_code", st.session_state.invite_code).execute()
                                 run_ai_engine("plan", sub_name=target_sub, grade=grade, days=days, content=combined_content)
                                 
-                                # [메모리 최적화] AI 계획 설계 후 임시 할당된 대용량 텍스트 회수
+                                # 메모리 최적화 수행
                                 del combined_content
                                 gc.collect()
                             else:
