@@ -239,7 +239,7 @@ for key, default in session_keys.items():
     if key not in st.session_state:
         st.session_state[key] = default
 
-# 4. 파일 본문 텍스트 파싱 유틸리티 
+# 4. 파일 본문 텍스트 파싱 유틸리티
 @st.cache_data(max_entries=5, ttl=300)
 def extract_text(uploaded_file):
     try:
@@ -271,13 +271,13 @@ def run_ai_engine(prompt_type, **kwargs):
                 p = f"""오늘 날짜는 {today_str}입니다. 타겟 과목명: [{kwargs['sub_name']}], 목표 성적: {kwargs['grade']}, 남은 기간: {kwargs['days']}일.
 제공된 학습 자료를 바탕으로, 사용자가 매일 공부할 수 있도록 각 일차별 학습 미션을 구분하여 계획표를 짜주세요.
 
-[작성 수칙 - 매우 중요]
+작성 수칙 - 매우 중요
 반드시 하루의 스케줄은 한 줄로 끝나야 하며, 문장의 시작을 '과목명 Day X:' 형태로만 가공해야 합니다. 추가 문장이나 줄바꿈을 넣지 마세요.
 양식 준수 예시 (과목명이 '로봇공학'인 경우):
 로봇공학 Day 1: 로봇 센서 개론 기초 용어 정리 및 핵심 개념 요약하기
 로봇공학 Day 2: 적외선 센서 데이터 연동 코드 정독하기
 
-[학습 자료]
+학습 자료
 {kwargs['content'][:4000]}"""
                 res = model_instance.generate_content(p)
                 st.session_state.current_ai_plan = st.session_state.current_ai_plan + "\n" + res.text
@@ -287,11 +287,11 @@ def run_ai_engine(prompt_type, **kwargs):
                 p = f"""오늘의 핵심 미션: {kwargs['mission']}
 위 미션을 완수하기 위해 학생이 차근차근 따라할 수 있는 상세 행동 체크리스트를 3~5개로 쪼개서 만들어주세요.
 
-[작성 수칙 - 매우 중요 (규칙 위반 시 시스템 오류 발생)]
+작성 수칙 - 매우 중요 (규칙 위반 시 시스템 오류 발생)
 1. 반드시 기호나 번호(-, *, 1. 등) 없이 체크리스트 내용만 한 줄에 하나씩 적어주세요.
 2. 제공된 [학습 자료] 안의 핵심 키워드를 포함해서 구체적인 행동(예: '개념 요약하기', '공식 암기하기')으로 지시해주세요.
 
-[학습 자료]
+학습 자료
 {kwargs['content'][:4000]}"""
                 res = model_instance.generate_content(p)
                 st.session_state.focus_detailed_checklist = [l.strip() for l in res.text.split('\n') if l.strip()]
@@ -301,10 +301,11 @@ def run_ai_engine(prompt_type, **kwargs):
 아래 [학습 자료]만을 읽고, 해당 내용을 바탕으로 핵심 변별력 퀴즈 3개를 출제하세요. 
 학습 자료에 없는 외부 지식은 절대로 사용해서는 안 됩니다.
 
-[작성 수칙 - 매우 중요 (규칙 위반 시 시스템 오류 발생)]
+작성 수칙 - 매우 중요 (규칙 위반 시 시스템 오류 발생)
 1. 문제 1과 문제 2는 '단답형/주관식'으로, 문제 3은 '서술형'으로 출제하세요.
 2. 문제 내용 안에는 절대 정답이나 해설을 포함하지 마세요. (시험지가 유출되면 안 됩니다.)
-3. 반드시 아래의 [출제 양식] 텍스트 구조를 100% 그대로 복사해서 내용만 채워 작성하세요.
+3. 가독성을 위해 텍스트에 별표(**) 같은 마크다운 굵은 글씨 효과를 절대 쓰지 마세요. 그냥 텍스트로만 작성하세요.
+4. 반드시 아래의 [출제 양식] 텍스트 구조를 100% 그대로 복사해서 내용만 채워 작성하세요.
 
 [출제 양식]
 문제 1. (여기에 단답형/주관식 문제 작성)
@@ -324,7 +325,7 @@ def run_ai_engine(prompt_type, **kwargs):
 3번 모범 답안: (여기에 모범 답안)
 해설: (여기에 해설)
 
-[학습 자료]
+학습 자료
 {kwargs['content'][:4000]}"""
                 res = model_instance.generate_content(p)
                 st.session_state.current_ai_quiz = res.text
@@ -340,10 +341,10 @@ def run_ai_engine(prompt_type, **kwargs):
 아래 [학습 자료]를 최우선으로 참고하여 학생의 질문에 답변해주세요. 
 만약 자료에 직접적인 정답이 없거나 부족하더라도 절대 모른다고 하지 말고, 학생이 공부에 도움을 받을 수 있도록 당신의 지식을 총동원하여 상세하고 친절하게 설명해주세요.
 
-[학습 자료]
+학습 자료
 {kwargs['content'][:8000]}
 
-[학생의 질문]
+학생의 질문
 {kwargs['q']}"""
                 res = model_instance.generate_content(p)
                 st.session_state.focus_chat_history.append({"role": "user", "content": kwargs['q']})
@@ -561,7 +562,7 @@ elif st.session_state.page == 'dashboard':
                             updated_subs = [s for s in my_subs if s['name'] != delete_target]
                             all_s = data['subjects']
                             all_s[st.session_state.my_name] = updated_subs
-                            supabase.table("team").update({"subjects": all_s}).eq("invite_code", st.session_state.invite_code).execute()
+                            supabase.table("team").update({"subjects": updated_subs}).eq("invite_code", st.session_state.invite_code).execute()
                             st.rerun()
 
                 with c_right:
@@ -625,6 +626,7 @@ elif st.session_state.page == 'dashboard':
                             st.session_state.active_day = chosen_day
                             st.session_state.current_mode = 'focus'
                             
+                            # 🔥 [속도 최적화] 대시보드에서 불러온 텍스트 데이터를 세션에 꽉 쥐어두어 시험장 로딩 시간 단축
                             st.session_state.saved_study_content = st.session_state.get(f"saved_doc_{selected_sub_to_study}", combined_content if 'combined_content' in locals() and combined_content.strip() else "기본 학업 개념")
                             
                             st.session_state.focus_chat_history = []
@@ -654,7 +656,7 @@ elif st.session_state.page == 'dashboard':
                         <span style='font-size:16px; font-weight:700;'>{owner_badge} : {m_block['name']}님</span> | 
                         <span style='color:#238387; font-weight:600;'>현재 상태: {m_block['status']}</span>
                         <div style='margin-top:8px; font-size:13px; color:#7c7b77;'>
-                            🎯 목표 레벨: {m_block.get('grade', '-')} | 설정 기간: {m_block.get('days', '-')} | ⏱️ 오늘 누적 집중 시간: {m_block.get('total_time', 0)}분
+                            🎯 목표 레벨: {m_block.get('grade', '-')} | 설정 기간: {m_block.get('days', '-')} | ⏱️ 오늘 누적 집중 시간: <b>{m_block.get('total_time', 0)}분</b>
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
@@ -774,7 +776,6 @@ elif st.session_state.page == 'dashboard':
                         m_block['total_time'] = m_block.get('total_time', 0) + gained_minutes
                 supabase.table("team").update({"members": ml}).eq("invite_code", st.session_state.invite_code).execute()
                 
-                st.session_state.focus_detailed_checklist = []
                 st.session_state.test_start_time = time.time()
                 st.session_state.user_answers = {}
                 st.session_state.current_mode = 'test'
@@ -782,6 +783,8 @@ elif st.session_state.page == 'dashboard':
                 target_user_grade = next((m_block.get('grade', 'B+') for m_block in data['members'] if m_block['name'] == st.session_state.my_name), 'B+')
                 
                 study_data = st.session_state.saved_study_content if st.session_state.get('saved_study_content') else "기본 학업 개념"
+                
+                # 🔥 [중요 격리] 시험 시작 버튼을 누르는 순간 1회만 문제를 출제하도록 구성하여 로딩 꼬임 차단
                 run_ai_engine("quiz", grade=target_user_grade, content=study_data, sub_name=st.session_state.active_subject)
                 st.rerun()
 
@@ -845,7 +848,8 @@ elif st.session_state.page == 'dashboard':
                     else:
                         st.markdown(quiz_text) 
                 else:
-                    st.info("AI가 목표 도달도 판별을 위한 맞춤형 심화 모의고사를 출제하고 있습니다. 잠시만 기다려 주세요...")
+                    # 🔥 자동 새로고침 루프에서 인공지능이 무한 재수행되지 않도록 안내 메시지만 노출
+                    st.info("AI가 학습 자료 분석을 마치고 주관식/서술형 시험지를 전송 중입니다. 잠시만 기다려 주세요... 📝")
             
             with test_col_r:
                 st.markdown("""
