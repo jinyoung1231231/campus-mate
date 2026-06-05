@@ -5,6 +5,7 @@ import random
 import string
 from datetime import datetime
 import time
+import gc  # [메모리 최적화] 가비지 컬렉터 라이브러리 추가
 from streamlit_autorefresh import st_autorefresh
 from PyPDF2 import PdfReader
 
@@ -235,7 +236,8 @@ for key, default in session_keys.items():
     if key not in st.session_state:
         st.session_state[key] = default
 
-# 4. 파일 본문 텍스트 파싱 유틸리티
+# 4. 파일 본문 텍스트 파싱 유틸리티 [메모리 최적화: 캐싱 적용]
+@st.cache_data(max_entries=5, ttl=300)
 def extract_text(uploaded_file):
     try:
         if uploaded_file.type == "application/pdf":
@@ -293,6 +295,9 @@ def run_ai_engine(prompt_type, **kwargs):
                 st.session_state.current_ai_consult_q = kwargs['q']
                 st.session_state.current_ai_consult_a = res.text
             
+            # [메모리 최적화] AI 작업 종료 후 대용량 프롬프트 메모리 해제
+            gc.collect()
+
             st.session_state.refresh_lock = False
             st.rerun()
                 
@@ -409,6 +414,7 @@ elif st.session_state.page == 'dashboard':
 
                     st.markdown("### 📂 현재 학습 진행 상황")
                     
+                    # [레이아웃 대격변] 3열 그리드를 파괴하고 1열 상하(위아래) 정렬로 전체 확장 배치
                     for idx, sub in enumerate(my_subs):
                         sub_name = sub['name']
                         total_days = sub.get('total_days', 7)
@@ -420,6 +426,7 @@ elif st.session_state.page == 'dashboard':
                         task_week = sub.get('task_week', '3주차')
                         exam_week = sub.get('exam_week', '8주차 중간고사')
                         
+                        # 상하로 큼직하게 배치되는 세로 정렬 카드형 위젯 개동
                         with st.container():
                             st.markdown(f"""
                             <div class='subject-block'>
@@ -432,6 +439,7 @@ elif st.session_state.page == 'dashboard':
                             """, unsafe_allow_html=True)
                             st.progress(progress_ratio)
                             
+                            # [핵심 비주얼 기획] 해당 과목 카드 안쪽에 수직선 및 마일스톤 점(Dot) 그래프 그리기
                             sub_missions = parsed_all_missions.get(sub_name, {})
                             with st.expander(f"🔍 {sub_name} 전체 일차별 수직선 로드맵 펼치기", expanded=True):
                                 st.markdown("<div class='vertical-timeline'>", unsafe_allow_html=True)
@@ -439,6 +447,7 @@ elif st.session_state.page == 'dashboard':
                                 for d_i in range(1, total_days + 1):
                                     mission_desc = sub_missions.get(d_i, f"{sub_name} 해당 차시 교안 핵심 텍스트 분석 및 모의평가 수행")
                                     
+                                    # 달성 상태 판단에 따른 수직선 점(Dot) 컬러 인덱스 부여
                                     if d_i < current_day:
                                         dot_class = "dot-done"
                                         badge_class = "nb-done"
@@ -506,7 +515,7 @@ elif st.session_state.page == 'dashboard':
                                     if s['name'] == target_sub:
                                         s['total_days'] = days
                                         s['current_day'] = 1
-                                
+                                        
                                 ml = data['members']
                                 for m_block in ml:
                                     if m_block['name'] == st.session_state.my_name: 
@@ -514,6 +523,10 @@ elif st.session_state.page == 'dashboard':
                                         m_block['days'] = f"{days}일"
                                 supabase.table("team").update({"members": ml, "subjects": data['subjects']}).eq("invite_code", st.session_state.invite_code).execute()
                                 run_ai_engine("plan", sub_name=target_sub, grade=grade, days=days, content=combined_content)
+                                
+                                # [메모리 최적화] AI 계획 설계 후 임시 할당된 대용량 텍스트 회수
+                                del combined_content
+                                gc.collect()
                             else:
                                 st.warning("일정을 설계할 텍스트 본문이나 지시사항을 채워넣어 주세요.")
 
@@ -564,7 +577,7 @@ elif st.session_state.page == 'dashboard':
                         <span style='font-size:16px; font-weight:700;'>{owner_badge} : {m_block['name']}님</span> | 
                         <span style='color:#238387; font-weight:600;'>현재 상태: {m_block['status']}</span>
                         <div style='margin-top:8px; font-size:13px; color:#7c7b77;'>
-                            🎯 목표 레벨: {m_block.get('grade', '-')} | 설정 기간: {m_block.get('days', '-')} | ⏱️ 오늘 누적 집중 시간: {m_block.get('total_time', 0)}분
+                            🎯 목표 레벨: {m_block.get('grade', '-')} | 설정 기간: {m_block.get('days', '-')} | ⏱️ 오늘 누적 집중 시간: <b>{m_block.get('total_time', 0)}분</b>
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
@@ -608,8 +621,8 @@ elif st.session_state.page == 'dashboard':
                     st.markdown(f"""
                     <div class='consult-container'>
                         <div style='font-size: 16px; font-weight: 700; color: #37352f; margin-bottom: 12px;'>🔮 AI 멘토의 1:1 비밀 맞춤 솔루션</div>
-                        <div class='consult-user-q'>👤 제출한 고민 내역:<br>{st.session_state.current_ai_consult_q}</div>
-                        <div class='consult-ai-a'>🤖 AI 마인드 조언 가이드:<br><br>{st.session_state.current_ai_consult_a.replace('\n', '<br>')}</div>
+                        <div class='consult-user-q'>👤 <b>제출한 고민 내역:</b><br>{st.session_state.current_ai_consult_q}</div>
+                        <div class='consult-ai-a'>🤖 <b>AI 마인드 조언 가이드:</b><br><br>{st.session_state.current_ai_consult_a.replace('\n', '<br>')}</div>
                     </div>
                     """, unsafe_allow_html=True)
                 else:
@@ -753,9 +766,9 @@ elif st.session_state.page == 'dashboard':
             
             tab_ans, tab_solution = st.tabs(["📥 내가 마킹한 OMR 제출본 확인", "🔍 AI 출제 정답 및 분석 해설지"])
             with tab_ans:
-                st.write(f"[1번 답안] : {st.session_state.user_answers.get('q1', '미기입')}")
-                st.write(f"[2번 답안] : {st.session_state.user_answers.get('q2', '미기입')}")
-                st.write(f"[3번 문항 답변] : {st.session_state.user_answers.get('q3', '미기입')}")
+                st.write(f"**[1번 답안]** : {st.session_state.user_answers.get('q1', '미기입')}")
+                st.write(f"**[2번 답안]** : {st.session_state.user_answers.get('q2', '미기입')}")
+                st.write(f"**[3번 문항 답변]** : {st.session_state.user_answers.get('q3', '미기입')}")
             with tab_solution:
                 if st.session_state.current_ai_quiz: st.write(st.session_state.current_ai_quiz)
             
@@ -770,7 +783,7 @@ elif st.session_state.page == 'dashboard':
         # =========================================================================
         elif st.session_state.current_mode == 'result':
             st.markdown("<div class='notion-header'>🎓 COURSE COMPLETION OFFICIAL REPORT</div>", unsafe_allow_html=True)
-            st.markdown(f"<div class='notion-sub'>축하합니다! {st.session_state.active_subject} 과목의 모든 일차 학습 과정과 최종 평가가 공식 종료되었습니다.</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='notion-sub'>축하합니다! <b>{st.session_state.active_subject}</b> 과목의 모든 일차 학습 과정과 최종 평가가 공식 종료되었습니다.</div>", unsafe_allow_html=True)
             
             ans_len = len(st.session_state.user_answers.get('q1', '')) + len(st.session_state.user_answers.get('q2', ''))
             target_user_grade = data['members'][0].get('grade', 'A+') if data['members'] else 'A+'
@@ -793,9 +806,9 @@ elif st.session_state.page == 'dashboard':
             st.write("")
             tab_final_ans, tab_final_sol = st.tabs(["📥 최종 졸업 고사 제출 답안 확인", "🔍 출제 오답 정고표 분석 해설지"])
             with tab_final_ans:
-                st.write(f"[최종 고사 1번 문항] : {st.session_state.user_answers.get('q1', '미기입')}")
-                st.write(f"[최종 고사 2번 문항] : {st.session_state.user_answers.get('q2', '미기입')}")
-                st.write(f"[최종 고사 3번 문항] : {st.session_state.user_answers.get('q3', '미기입')}")
+                st.write(f"**[최종 고사 1번 문항]** : {st.session_state.user_answers.get('q1', '미기입')}")
+                st.write(f"**[최종 고사 2번 문항]** : {st.session_state.user_answers.get('q2', '미기입')}")
+                st.write(f"**[최종 고사 3번 문항]** : {st.session_state.user_answers.get('q3', '미기입')}")
             with tab_final_sol:
                 if st.session_state.current_ai_quiz: st.write(st.session_state.current_ai_quiz)
                 
