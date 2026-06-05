@@ -236,7 +236,7 @@ for key, default in session_keys.items():
     if key not in st.session_state:
         st.session_state[key] = default
 
-# 4. 파일 본문 텍스트 파싱 유틸리티 (캐싱 추가)
+# 4. 파일 본문 텍스트 파싱 유틸리티 (메모리 최적화: 캐싱 적용)
 @st.cache_data(max_entries=5, ttl=300)
 def extract_text(uploaded_file):
     try:
@@ -295,7 +295,7 @@ def run_ai_engine(prompt_type, **kwargs):
                 st.session_state.current_ai_consult_q = kwargs['q']
                 st.session_state.current_ai_consult_a = res.text
             
-            # AI 호출 후 메모리 정리
+            # [메모리 최적화] AI 작업 종료 후 대용량 프롬프트 메모리 강제 해제
             gc.collect()
 
             st.session_state.refresh_lock = False
@@ -361,7 +361,7 @@ elif st.session_state.page == 'dashboard':
     if not st.session_state.invite_code: 
         st.session_state.page = 'gate'; st.rerun()
 
-    # [타이머 비상 해결!] 1초 단위 업데이트 & 100번 제한 해제(무한 구동)
+    # [타이머 무한 구동] 1초마다 업데이트, 한도 해제
     if not st.session_state.refresh_lock:
         st_autorefresh(interval=1000, limit=999999, key="global_refresh_engine")
     
@@ -369,6 +369,12 @@ elif st.session_state.page == 'dashboard':
     data = res.data[0] if res.data else None
     
     if data:
+        # [DB 복구 로직] 데이터베이스 오염 방지 및 자동 복구
+        if isinstance(data.get('subjects'), list):
+            recovered_subjects = {st.session_state.my_name: data['subjects']}
+            supabase.table("team").update({"subjects": recovered_subjects}).eq("invite_code", st.session_state.invite_code).execute()
+            data['subjects'] = recovered_subjects
+
         st.sidebar.markdown(f"<div class='notion-header' style='font-size:20px;'>📂 {data['team_name']}</div>", unsafe_allow_html=True)
         st.sidebar.markdown(f"<div class='notion-sub'>사용자: {st.session_state.my_name} 님</div>", unsafe_allow_html=True)
         
@@ -427,7 +433,7 @@ elif st.session_state.page == 'dashboard':
                         task_week = sub.get('task_week', '3주차')
                         exam_week = sub.get('exam_week', '8주차 중간고사')
                         
-                        # 상하로 큼직하게 배치되는 세로 정렬 카드형 위젯 개동
+                        # 상하로 큼직하게 배치되는 세로 정렬 카드형 위젯 가동
                         with st.container():
                             st.markdown(f"""
                             <div class='subject-block'>
@@ -499,7 +505,6 @@ elif st.session_state.page == 'dashboard':
                         target_sub = st.selectbox("AI 관리 타겟 과목 선택", [s['name'] for s in my_subs])
                         st.session_state.input_manual_text = st.text_area("학습 교안 본문 및 AI 세부 지시문 입력", value=st.session_state.input_manual_text, height=100, placeholder="여기에 요약할 텍스트를 붙여넣거나 세부 지시 사항을 입력하세요.")
                         
-                        # 다중 파일 업로드 적용
                         up_files = st.file_uploader(f"{target_sub} 자료 업로드 (여러 개 선택 가능)", type=['pdf', 'txt'], key="uploader_dash", accept_multiple_files=True)
                         
                         extracted = "".join([extract_text(f) for f in up_files]) if up_files else ""
@@ -751,7 +756,11 @@ elif st.session_state.page == 'dashboard':
                     for m_block in ml:
                         if m_block['name'] == st.session_state.my_name: 
                             m_block['status'] = "대기"
-                    supabase.table("team").update({"subjects": my_subs_update, "members": ml}).eq("invite_code", st.session_state.invite_code).execute()
+                            
+                    # [DB 덮어쓰기 에러 완벽 해결]
+                    all_s = data['subjects']
+                    all_s[st.session_state.my_name] = my_subs_update
+                    supabase.table("team").update({"subjects": all_s, "members": ml}).eq("invite_code", st.session_state.invite_code).execute()
                     
                     if is_course_finished:
                         st.session_state.current_mode = 'result'
@@ -820,7 +829,11 @@ elif st.session_state.page == 'dashboard':
                 for s in my_subs_update:
                     if s['name'] == st.session_state.active_subject:
                         s['current_day'] = 1
-                supabase.table("team").update({"subjects": my_subs_update}).eq("invite_code", st.session_state.invite_code).execute()
+                        
+                # [DB 덮어쓰기 에러 완벽 해결]
+                all_s = data['subjects']
+                all_s[st.session_state.my_name] = my_subs_update
+                supabase.table("team").update({"subjects": all_s}).eq("invite_code", st.session_state.invite_code).execute()
                 
                 st.session_state.current_mode = 'dashboard'
                 st.session_state.current_ai_quiz = ""
