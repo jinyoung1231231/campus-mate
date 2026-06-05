@@ -224,6 +224,7 @@ session_keys = {
     'user_answers': {},          
     'current_ai_plan': '', 
     'current_ai_quiz': '',
+    'current_ai_quiz_answers': '', # 🔥 정답지를 분리 저장할 신규 변수
     'current_ai_consult_q': '', 
     'current_ai_consult_a': '', 
     'input_manual_text': '',
@@ -296,39 +297,40 @@ def run_ai_engine(prompt_type, **kwargs):
                 res = model_instance.generate_content(p)
                 st.session_state.focus_detailed_checklist = [l.strip() for l in res.text.split('\n') if l.strip()]
 
-            elif prompt_type == "quiz":
+            elif prompt_type == "quiz_questions":
+                # 🔥 [개조] 문제만 딱 깔끔하게 3개 뽑아내는 전용 프롬프트
                 p = f"""당신은 대학교 교수이자 시험 출제위원입니다. 
-아래 [학습 자료]만을 읽고, 해당 내용을 바탕으로 핵심 변별력 퀴즈 3개를 출제하세요. 
+아래 [학습 자료]만을 읽고, 해당 내용을 바탕으로 주관식 및 서술형 퀴즈 3개를 출제하세요. 
 학습 자료에 없는 외부 지식은 절대로 사용해서는 안 됩니다.
 
-작성 수칙 - 매우 중요 (규칙 위반 시 시스템 오류 발생)
-1. 문제 1과 문제 2는 '단답형/주관식'으로, 문제 3은 '서술형'으로 출제하세요.
-2. 문제 내용 안에는 절대 정답이나 해설을 포함하지 마세요. (시험지가 유출되면 안 됩니다.)
-3. 가독성을 위해 텍스트에 별표(**) 같은 마크다운 굵은 글씨 효과를 절대 쓰지 마세요. 그냥 텍스트로만 작성하세요.
-4. 반드시 아래의 [출제 양식] 텍스트 구조를 100% 그대로 복사해서 내용만 채워 작성하세요.
+작성 수칙 - 매우 중요
+1. 문제 1과 문제 2는 단답형/주관식으로, 문제 3은 서술형으로 출제하세요.
+2. 문제 내용만 작성해야 하며, 절대로 정답이나 해설을 이 답변에 적지 마세요.
+3. 별표(**) 같은 마크다운 효과를 전혀 쓰지 말고 순수 텍스트로만 읽기 좋게 작성하세요.
 
 [출제 양식]
-문제 1. (여기에 단답형/주관식 문제 작성)
+문제 1. (단답형/주관식 문제 입력)
 
-문제 2. (여기에 단답형/주관식 문제 작성)
+문제 2. (단답형/주관식 문제 입력)
 
-문제 3. (여기에 서술형 문제 작성)
-
-===정답구분선===
-
-1번 정답: (여기에 정답)
-해설: (여기에 해설)
-
-2번 정답: (여기에 정답)
-해설: (여기에 해설)
-
-3번 모범 답안: (여기에 모범 답안)
-해설: (여기에 해설)
+문제 3. (서술형 문제 입력)
 
 학습 자료
 {kwargs['content'][:4000]}"""
                 res = model_instance.generate_content(p)
-                st.session_state.current_ai_quiz = res.text
+                st.session_state.current_ai_quiz = res.text.strip()
+                
+                # 🔥 [개조] 위에서 출제된 문제를 기반으로 정답지 사후 별도 생성 요청
+                p_ans = f"""위에서 출제된 시험 문항들을 바탕으로, 제공된 [학습 자료]에 근거한 명확한 정답과 해설지를 작성해 주세요.
+가독성을 방해하는 별표(**) 마크다운 효과는 절대 넣지 마세요.
+
+[출제된 시험 문항]
+{st.session_state.current_ai_quiz}
+
+[학습 자료]
+{kwargs['content'][:4000]}"""
+                res_ans = model_instance.generate_content(p_ans)
+                st.session_state.current_ai_quiz_answers = res_ans.text.strip()
 
             elif prompt_type == "consult":
                 p = f"학업 및 진로 고민 상담 내용입니다: {kwargs['q']}\n학생의 상황에 진심으로 공감하며 향후 진로 설계와 동기부여에 도움이 될 수 있는 구체적인 가이드와 솔루션을 제공해주세요."
@@ -436,7 +438,7 @@ elif st.session_state.page == 'dashboard':
             menu = " 내 학습 보드 (메인)"
             
         if st.sidebar.button("🚪 워크스페이스 로그아웃"):
-            st.session_state.update({"invite_code": "", "page": "gate", "current_mode": "dashboard", "current_ai_plan": "", "current_ai_quiz": "", "current_ai_consult_q": "", "current_ai_consult_a": "", "timer_running": False})
+            st.session_state.update({"invite_code": "", "page": "gate", "current_mode": "dashboard", "current_ai_plan": "", "current_ai_quiz": "", "current_ai_quiz_answers": "", "current_ai_consult_q": "", "current_ai_consult_a": "", "timer_running": False})
             st.rerun()
             
         with st.sidebar.expander("🎫 워크스페이스 초대코드"):
@@ -626,7 +628,6 @@ elif st.session_state.page == 'dashboard':
                             st.session_state.active_day = chosen_day
                             st.session_state.current_mode = 'focus'
                             
-                            # 🔥 [속도 최적화] 대시보드에서 불러온 텍스트 데이터를 세션에 꽉 쥐어두어 시험장 로딩 시간 단축
                             st.session_state.saved_study_content = st.session_state.get(f"saved_doc_{selected_sub_to_study}", combined_content if 'combined_content' in locals() and combined_content.strip() else "기본 학업 개념")
                             
                             st.session_state.focus_chat_history = []
@@ -656,7 +657,7 @@ elif st.session_state.page == 'dashboard':
                         <span style='font-size:16px; font-weight:700;'>{owner_badge} : {m_block['name']}님</span> | 
                         <span style='color:#238387; font-weight:600;'>현재 상태: {m_block['status']}</span>
                         <div style='margin-top:8px; font-size:13px; color:#7c7b77;'>
-                            🎯 목표 레벨: {m_block.get('grade', '-')} | 설정 기간: {m_block.get('days', '-')} | ⏱️ 오늘 누적 집중 시간: <b>{m_block.get('total_time', 0)}분</b>
+                            🎯 목표 레벨: {m_block.get('grade', '-')} | 설정 기간: {m_block.get('days', '-')} | ⏱️ 오늘 누적 집중 시간: {m_block.get('total_time', 0)}분
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
@@ -780,12 +781,10 @@ elif st.session_state.page == 'dashboard':
                 st.session_state.user_answers = {}
                 st.session_state.current_mode = 'test'
                 
-                target_user_grade = next((m_block.get('grade', 'B+') for m_block in data['members'] if m_block['name'] == st.session_state.my_name), 'B+')
-                
                 study_data = st.session_state.saved_study_content if st.session_state.get('saved_study_content') else "기본 학업 개념"
                 
-                # 🔥 [중요 격리] 시험 시작 버튼을 누르는 순간 1회만 문제를 출제하도록 구성하여 로딩 꼬임 차단
-                run_ai_engine("quiz", grade=target_user_grade, content=study_data, sub_name=st.session_state.active_subject)
+                # 🔥 [개조] 애초에 문제만 뽑아내는 전용 프롬프트 엔진 작동
+                run_ai_engine("quiz_questions", content=study_data, sub_name=st.session_state.active_subject)
                 st.rerun()
 
             st.divider()
@@ -810,7 +809,7 @@ elif st.session_state.page == 'dashboard':
                     run_ai_engine("focus_chat", q=user_q, content=study_data)
 
         # =========================================================================
-        # MODE 3: 시험 모드
+        # MODE 3: 시험 모드 (완전 격리 출제 화면)
         # =========================================================================
         elif st.session_state.current_mode == 'test':
             st.markdown("<div class='notion-header'>📝 REAL-TIME REAL TEST (실전 검증 시험장)</div>", unsafe_allow_html=True)
@@ -837,18 +836,9 @@ elif st.session_state.page == 'dashboard':
             with test_col_l:
                 st.markdown("### 📄 AI REAL TEST QUESTION")
                 if st.session_state.current_ai_quiz:
-                    quiz_text = st.session_state.current_ai_quiz
-                    
-                    if "===정답구분선===" in quiz_text:
-                        quiz_q = quiz_text.split("===정답구분선===")[0]
-                        st.markdown(quiz_q.strip())
-                    elif "정답구분선" in quiz_text:
-                        quiz_q = quiz_text.split("정답구분선")[0]
-                        st.markdown(quiz_q.strip())
-                    else:
-                        st.markdown(quiz_text) 
+                    # 🔥 [개조] 꼬일 요소 없이 깨끗하게 저장된 주관식/서술형 시험 문제만 화면에 렌더링
+                    st.markdown(st.session_state.current_ai_quiz)
                 else:
-                    # 🔥 자동 새로고침 루프에서 인공지능이 무한 재수행되지 않도록 안내 메시지만 노출
                     st.info("AI가 학습 자료 분석을 마치고 주관식/서술형 시험지를 전송 중입니다. 잠시만 기다려 주세요... 📝")
             
             with test_col_r:
@@ -905,37 +895,32 @@ elif st.session_state.page == 'dashboard':
                 st.write(f"[2번 답안] : {st.session_state.user_answers.get('q2', '미기입')}")
                 st.write(f"[3번 문항 답변] : {st.session_state.user_answers.get('q3', '미기입')}")
             with tab_solution:
-                if st.session_state.current_ai_quiz: 
-                    st.markdown(st.session_state.current_ai_quiz.replace("===정답구분선===", "\n\n--- 🔍 정답 및 해설 ---\n"))
+                # 🔥 [개조] 분리 보관해둔 깨끗한 해설지만 출력
+                if st.session_state.current_ai_quiz_answers: 
+                    st.markdown(st.session_state.current_ai_quiz_answers)
             
             if st.button("🔄 검증 완료 및 대시보드로 돌아가기", type="primary", use_container_width=True):
                 st.session_state.current_mode = 'dashboard'
                 st.session_state.current_ai_quiz = ""
-                st.session_state.user_answers = {}
+                st.session_state.current_ai_quiz_answers = ""
+                st.user_answers = {}
                 st.rerun()
 
         # =========================================================================
-        # MODE 5: 최종 학점 산출 성적표 발행 모드
+        # MODE 5: 최종 완료 리포트 모드 (목표학점 제거 버전)
         # =========================================================================
         elif st.session_state.current_mode == 'result':
             st.markdown("<div class='notion-header'>🎓 COURSE COMPLETION OFFICIAL REPORT</div>", unsafe_allow_html=True)
             st.markdown(f"<div class='notion-sub'>축하합니다! {st.session_state.active_subject} 과목의 모든 일차 학습 과정과 최종 평가가 공식 종료되었습니다.</div>", unsafe_allow_html=True)
             
-            ans_len = len(st.session_state.user_answers.get('q1', '')) + len(st.session_state.user_answers.get('q2', ''))
-            target_user_grade = data['members'][0].get('grade', 'A+') if data['members'] else 'A+'
-            
-            if ans_len > 40:
-                final_gained_grade = target_user_grade
-            else:
-                final_gained_grade = "B+" if target_user_grade == "A+" else "Pass"
-                
+            # 🔥 [수정] 목표학점 및 스코어 연동 라벨을 완전히 걷어내고 순수 이수 리포트 구조로 변경
             st.markdown(f"""
             <div class='report-card'>
-                <div style='font-size: 14px; font-weight: 600; color: #64748b; margin-bottom: 8px;'>학사 이수 인증 성적표 (OFFICIAL GRADE)</div>
-                <div style='font-size: 20px; font-weight: 700; color: #334155; margin-bottom: 4px;'>과목명: {st.session_state.active_subject}</div>
-                <div style='font-size: 13px; color: #94a3b8; margin-bottom: 16px;'>학습 러닝 타임 전체 이수 증명</div>
-                <div style='font-size: 64px; font-weight: 800; color: #10b981; letter-spacing: -2px;'>{final_gained_grade}</div>
-                <div style='font-size: 13px; color: #059669; font-weight: 600; margin-top: 8px;'>🎯 내 목표 학점 레벨 [{target_user_grade}] 대비 최종 도달 성공!</div>
+                <div style='font-size: 14px; font-weight: 600; color: #64748b; margin-bottom: 8px;'>학사 이수 인증 성적표 (OFFICIAL CERTIFICATE)</div>
+                <div style='font-size: 24px; font-weight: 700; color: #334155; margin-bottom: 4px;'>과목명: {st.session_state.active_subject}</div>
+                <div style='font-size: 14px; color: #94a3b8; margin-bottom: 16px;'>학습 러닝 타임 전체 과정 최종 완료</div>
+                <div style='font-size: 48px; font-weight: 800; color: #10b981; letter-spacing: -1px;'>COMPLETE</div>
+                <div style='font-size: 13px; color: #059669; font-weight: 600; margin-top: 12px;'>🎉 모든 마일스톤 도달 및 최종 졸업 고사 통과 완료</div>
             </div>
             """, unsafe_allow_html=True)
             
@@ -946,8 +931,8 @@ elif st.session_state.page == 'dashboard':
                 st.write(f"[최종 고사 2번 문항] : {st.session_state.user_answers.get('q2', '미기입')}")
                 st.write(f"[최종 고사 3번 문항] : {st.session_state.user_answers.get('q3', '미기입')}")
             with tab_final_sol:
-                if st.session_state.current_ai_quiz: 
-                    st.markdown(st.session_state.current_ai_quiz.replace("===정답구분선===", "\n\n--- 🔍 정답 및 해설 ---\n"))
+                if st.session_state.current_ai_quiz_answers: 
+                    st.markdown(st.session_state.current_ai_quiz_answers)
                 
             st.divider()
             if st.button("🔄 최종 성적표 수령 완료 및 대시보드로 복귀", type="primary", use_container_width=True):
@@ -962,5 +947,6 @@ elif st.session_state.page == 'dashboard':
                 
                 st.session_state.current_mode = 'dashboard'
                 st.session_state.current_ai_quiz = ""
+                st.session_state.current_ai_quiz_answers = ""
                 st.session_state.user_answers = {}
                 st.rerun()
