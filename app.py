@@ -231,7 +231,8 @@ session_keys = {
     'input_grade': 'A+',
     'refresh_lock': False,
     'saved_study_content': '',
-    'focus_chat_history': []  
+    'focus_chat_history': [],
+    'focus_detailed_checklist': []  
 }
 
 for key, default in session_keys.items():
@@ -282,6 +283,19 @@ def run_ai_engine(prompt_type, **kwargs):
                 st.session_state.current_ai_plan = st.session_state.current_ai_plan + "\n" + res.text
                 st.session_state.current_ai_quiz = "" 
 
+            elif prompt_type == "checklist":
+                p = f"""오늘의 핵심 미션: {kwargs['mission']}
+위 미션을 완수하기 위해 학생이 차근차근 따라할 수 있는 상세 행동 체크리스트를 3~5개로 쪼개서 만들어주세요.
+
+[작성 수칙 - 매우 중요 (규칙 위반 시 시스템 오류 발생)]
+1. 반드시 기호나 번호(-, *, 1. 등) 없이 체크리스트 내용만 한 줄에 하나씩 적어주세요.
+2. 제공된 [학습 자료] 안의 핵심 키워드를 포함해서 구체적인 행동(예: '개념 요약하기', '공식 암기하기')으로 지시해주세요.
+
+[학습 자료]
+{kwargs['content'][:4000]}"""
+                res = model_instance.generate_content(p)
+                st.session_state.focus_detailed_checklist = [l.strip() for l in res.text.split('\n') if l.strip()]
+
             elif prompt_type == "quiz":
                 p = f"""당신은 대학교 교수이자 시험 출제위원입니다. 
 아래 [학습 자료]만을 읽고, 해당 내용을 바탕으로 핵심 변별력 퀴즈 3개를 출제하세요. 
@@ -293,22 +307,22 @@ def run_ai_engine(prompt_type, **kwargs):
 3. 반드시 아래의 [출제 양식] 텍스트 구조를 100% 그대로 복사해서 내용만 채워 작성하세요.
 
 [출제 양식]
-**문제 1.** (여기에 단답형/주관식 문제 작성)
+문제 1. (여기에 단답형/주관식 문제 작성)
 
-**문제 2.** (여기에 단답형/주관식 문제 작성)
+문제 2. (여기에 단답형/주관식 문제 작성)
 
-**문제 3.** (여기에 서술형 문제 작성)
+문제 3. (여기에 서술형 문제 작성)
 
 ===정답구분선===
 
-**1번 정답:** (여기에 정답)
-**해설:** (여기에 해설)
+1번 정답: (여기에 정답)
+해설: (여기에 해설)
 
-**2번 정답:** (여기에 정답)
-**해설:** (여기에 해설)
+2번 정답: (여기에 정답)
+해설: (여기에 해설)
 
-**3번 모범 답안:** (여기에 모범 답안)
-**해설:** (여기에 해설)
+3번 모범 답안: (여기에 모범 답안)
+해설: (여기에 해설)
 
 [학습 자료]
 {kwargs['content'][:4000]}"""
@@ -322,11 +336,12 @@ def run_ai_engine(prompt_type, **kwargs):
                 st.session_state.current_ai_consult_a = res.text
                 
             elif prompt_type == "focus_chat":
-                p = f"""당신은 현재 학습 중인 과목의 친절한 튜터입니다. 아래 제공된 [학습 자료]만을 바탕으로 학생의 질문에 답변해주세요.
-자료에 없는 내용은 '제공된 자료에서는 알 수 없습니다'라고 안전하게 답변하세요.
+                p = f"""당신은 현재 학습 중인 과목의 1:1 전담 친절한 AI 튜터입니다. 
+아래 [학습 자료]를 최우선으로 참고하여 학생의 질문에 답변해주세요. 
+만약 자료에 직접적인 정답이 없거나 부족하더라도 절대 모른다고 하지 말고, 학생이 공부에 도움을 받을 수 있도록 당신의 지식을 총동원하여 상세하고 친절하게 설명해주세요.
 
 [학습 자료]
-{kwargs['content'][:6000]}
+{kwargs['content'][:8000]}
 
 [학생의 질문]
 {kwargs['q']}"""
@@ -568,6 +583,8 @@ elif st.session_state.page == 'dashboard':
                         
                         if st.button("🤖 AI 맞춤형 일차별 계획 설계", type="primary", use_container_width=True):
                             if combined_content:
+                                st.session_state[f"saved_doc_{target_sub}"] = combined_content
+                                
                                 for s in my_subs:
                                     if s['name'] == target_sub:
                                         s['total_days'] = days
@@ -608,10 +625,10 @@ elif st.session_state.page == 'dashboard':
                             st.session_state.active_day = chosen_day
                             st.session_state.current_mode = 'focus'
                             
-                            st.session_state.saved_study_content = combined_content if 'combined_content' in locals() and combined_content.strip() else "기본 학업 개념"
+                            st.session_state.saved_study_content = st.session_state.get(f"saved_doc_{selected_sub_to_study}", combined_content if 'combined_content' in locals() and combined_content.strip() else "기본 학업 개념")
                             
-                            # 몰입 모드 시작 시 튜터 대화 내역 초기화
                             st.session_state.focus_chat_history = []
+                            st.session_state.focus_detailed_checklist = []
                             
                             st.session_state.timer_running = True
                             st.session_state.start_time = time.time()
@@ -637,7 +654,7 @@ elif st.session_state.page == 'dashboard':
                         <span style='font-size:16px; font-weight:700;'>{owner_badge} : {m_block['name']}님</span> | 
                         <span style='color:#238387; font-weight:600;'>현재 상태: {m_block['status']}</span>
                         <div style='margin-top:8px; font-size:13px; color:#7c7b77;'>
-                            🎯 목표 레벨: {m_block.get('grade', '-')} | 설정 기간: {m_block.get('days', '-')} | ⏱️ 오늘 누적 집중 시간: <b>{m_block.get('total_time', 0)}분</b>
+                            🎯 목표 레벨: {m_block.get('grade', '-')} | 설정 기간: {m_block.get('days', '-')} | ⏱️ 오늘 누적 집중 시간: {m_block.get('total_time', 0)}분
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
@@ -706,7 +723,7 @@ elif st.session_state.page == 'dashboard':
             </div>
             """, unsafe_allow_html=True)
             
-            st.markdown("### 🔲 오늘의 학습 완수 체크리스트")
+            st.markdown("### 🔲 오늘의 학습 완수 상세 체크리스트")
             
             target_day_text = ""
             if st.session_state.current_ai_plan:
@@ -729,9 +746,17 @@ elif st.session_state.page == 'dashboard':
             if not target_day_text.strip():
                 target_day_text = f"Day {st.session_state.active_day}: 교안 핵심 메인 개념 정독 및 서론 파트 노트 정리 수반"
 
-            mission_lines = [l.strip() for l in target_day_text.split('\n') if l.strip()]
-            for idx, m_line in enumerate(mission_lines):
-                st.checkbox(f"{m_line}", key=f"mission_chk_{idx}")
+            st.info(f"오늘의 핵심 미션: {target_day_text.strip()}")
+            
+            if not st.session_state.focus_detailed_checklist:
+                if st.button("AI 튜터에게 미션 쪼개기 요청 (상세 체크리스트 생성)", use_container_width=True):
+                    study_data = st.session_state.saved_study_content if st.session_state.get('saved_study_content') else "기본 학업 개념"
+                    run_ai_engine("checklist", mission=target_day_text.strip(), content=study_data)
+            else:
+                for idx, m_line in enumerate(st.session_state.focus_detailed_checklist):
+                    clean_line = m_line.lstrip("- *1234567890.")
+                    if clean_line.strip():
+                        st.checkbox(f"{clean_line.strip()}", key=f"mission_chk_{st.session_state.active_subject}_{st.session_state.active_day}_{idx}")
 
             st.write("")
             st.write("")
@@ -749,6 +774,7 @@ elif st.session_state.page == 'dashboard':
                         m_block['total_time'] = m_block.get('total_time', 0) + gained_minutes
                 supabase.table("team").update({"members": ml}).eq("invite_code", st.session_state.invite_code).execute()
                 
+                st.session_state.focus_detailed_checklist = []
                 st.session_state.test_start_time = time.time()
                 st.session_state.user_answers = {}
                 st.session_state.current_mode = 'test'
@@ -759,7 +785,6 @@ elif st.session_state.page == 'dashboard':
                 run_ai_engine("quiz", grade=target_user_grade, content=study_data, sub_name=st.session_state.active_subject)
                 st.rerun()
 
-            # --- 노트북LM 스타일 튜터 AI 추가 ---
             st.divider()
             st.markdown("### 💬 튜터 AI에게 질문하기 (학습 자료 기반)")
             st.markdown("<div style='font-size:13px; color:#7c7b77; margin-bottom:10px;'>현재 과목의 교안 데이터를 읽은 AI에게 모르는 개념을 바로 물어보세요!</div>", unsafe_allow_html=True)
@@ -872,12 +897,12 @@ elif st.session_state.page == 'dashboard':
             
             tab_ans, tab_solution = st.tabs(["📥 내가 마킹한 OMR 제출본 확인", "🔍 AI 출제 정답 및 분석 해설지"])
             with tab_ans:
-                st.write(f"**[1번 답안]** : {st.session_state.user_answers.get('q1', '미기입')}")
-                st.write(f"**[2번 답안]** : {st.session_state.user_answers.get('q2', '미기입')}")
-                st.write(f"**[3번 문항 답변]** : {st.session_state.user_answers.get('q3', '미기입')}")
+                st.write(f"[1번 답안] : {st.session_state.user_answers.get('q1', '미기입')}")
+                st.write(f"[2번 답안] : {st.session_state.user_answers.get('q2', '미기입')}")
+                st.write(f"[3번 문항 답변] : {st.session_state.user_answers.get('q3', '미기입')}")
             with tab_solution:
                 if st.session_state.current_ai_quiz: 
-                    st.markdown(st.session_state.current_ai_quiz.replace("===정답구분선===", "\n\n--- 🔍 **정답 및 해설** ---\n"))
+                    st.markdown(st.session_state.current_ai_quiz.replace("===정답구분선===", "\n\n--- 🔍 정답 및 해설 ---\n"))
             
             if st.button("🔄 검증 완료 및 대시보드로 돌아가기", type="primary", use_container_width=True):
                 st.session_state.current_mode = 'dashboard'
@@ -890,7 +915,7 @@ elif st.session_state.page == 'dashboard':
         # =========================================================================
         elif st.session_state.current_mode == 'result':
             st.markdown("<div class='notion-header'>🎓 COURSE COMPLETION OFFICIAL REPORT</div>", unsafe_allow_html=True)
-            st.markdown(f"<div class='notion-sub'>축하합니다! <b>{st.session_state.active_subject}</b> 과목의 모든 일차 학습 과정과 최종 평가가 공식 종료되었습니다.</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='notion-sub'>축하합니다! {st.session_state.active_subject} 과목의 모든 일차 학습 과정과 최종 평가가 공식 종료되었습니다.</div>", unsafe_allow_html=True)
             
             ans_len = len(st.session_state.user_answers.get('q1', '')) + len(st.session_state.user_answers.get('q2', ''))
             target_user_grade = data['members'][0].get('grade', 'A+') if data['members'] else 'A+'
@@ -913,12 +938,12 @@ elif st.session_state.page == 'dashboard':
             st.write("")
             tab_final_ans, tab_final_sol = st.tabs(["📥 최종 졸업 고사 제출 답안 확인", "🔍 출제 오답 정고표 분석 해설지"])
             with tab_final_ans:
-                st.write(f"**[최종 고사 1번 문항]** : {st.session_state.user_answers.get('q1', '미기입')}")
-                st.write(f"**[최종 고사 2번 문항]** : {st.session_state.user_answers.get('q2', '미기입')}")
-                st.write(f"**[최종 고사 3번 문항]** : {st.session_state.user_answers.get('q3', '미기입')}")
+                st.write(f"[최종 고사 1번 문항] : {st.session_state.user_answers.get('q1', '미기입')}")
+                st.write(f"[최종 고사 2번 문항] : {st.session_state.user_answers.get('q2', '미기입')}")
+                st.write(f"[최종 고사 3번 문항] : {st.session_state.user_answers.get('q3', '미기입')}")
             with tab_final_sol:
                 if st.session_state.current_ai_quiz: 
-                    st.markdown(st.session_state.current_ai_quiz.replace("===정답구분선===", "\n\n--- 🔍 **정답 및 해설** ---\n"))
+                    st.markdown(st.session_state.current_ai_quiz.replace("===정답구분선===", "\n\n--- 🔍 정답 및 해설 ---\n"))
                 
             st.divider()
             if st.button("🔄 최종 성적표 수령 완료 및 대시보드로 복귀", type="primary", use_container_width=True):
