@@ -230,7 +230,8 @@ session_keys = {
     'input_days': 7,
     'input_grade': 'A+',
     'refresh_lock': False,
-    'saved_study_content': ''  
+    'saved_study_content': '',
+    'focus_chat_history': []  
 }
 
 for key, default in session_keys.items():
@@ -282,7 +283,6 @@ def run_ai_engine(prompt_type, **kwargs):
                 st.session_state.current_ai_quiz = "" 
 
             elif prompt_type == "quiz":
-                # 🔥 [완벽 통제 출제 프롬프트]
                 p = f"""당신은 대학교 교수이자 시험 출제위원입니다. 
 아래 [학습 자료]만을 읽고, 해당 내용을 바탕으로 핵심 변별력 퀴즈 3개를 출제하세요. 
 학습 자료에 없는 외부 지식은 절대로 사용해서는 안 됩니다.
@@ -320,6 +320,19 @@ def run_ai_engine(prompt_type, **kwargs):
                 res = model_instance.generate_content(p)
                 st.session_state.current_ai_consult_q = kwargs['q']
                 st.session_state.current_ai_consult_a = res.text
+                
+            elif prompt_type == "focus_chat":
+                p = f"""당신은 현재 학습 중인 과목의 친절한 튜터입니다. 아래 제공된 [학습 자료]만을 바탕으로 학생의 질문에 답변해주세요.
+자료에 없는 내용은 '제공된 자료에서는 알 수 없습니다'라고 안전하게 답변하세요.
+
+[학습 자료]
+{kwargs['content'][:6000]}
+
+[학생의 질문]
+{kwargs['q']}"""
+                res = model_instance.generate_content(p)
+                st.session_state.focus_chat_history.append({"role": "user", "content": kwargs['q']})
+                st.session_state.focus_chat_history.append({"role": "assistant", "content": res.text})
             
             gc.collect()
             st.session_state.refresh_lock = False
@@ -597,6 +610,9 @@ elif st.session_state.page == 'dashboard':
                             
                             st.session_state.saved_study_content = combined_content if 'combined_content' in locals() and combined_content.strip() else "기본 학업 개념"
                             
+                            # 몰입 모드 시작 시 튜터 대화 내역 초기화
+                            st.session_state.focus_chat_history = []
+                            
                             st.session_state.timer_running = True
                             st.session_state.start_time = time.time()
                             
@@ -665,8 +681,8 @@ elif st.session_state.page == 'dashboard':
                     st.markdown(f"""
                     <div class='consult-container'>
                         <div style='font-size: 16px; font-weight: 700; color: #37352f; margin-bottom: 12px;'>🔮 AI 멘토의 1:1 비밀 맞춤 솔루션</div>
-                        <div class='consult-user-q'>👤 <b>제출한 고민 내역:</b><br>{st.session_state.current_ai_consult_q}</div>
-                        <div class='consult-ai-a'>🤖 <b>AI 마인드 조언 가이드:</b><br><br>{st.session_state.current_ai_consult_a.replace('\n', '<br>')}</div>
+                        <div class='consult-user-q'>👤 제출한 고민 내역:<br>{st.session_state.current_ai_consult_q}</div>
+                        <div class='consult-ai-a'>🤖 AI 마인드 조언 가이드:<br><br>{st.session_state.current_ai_consult_a.replace('\n', '<br>')}</div>
                     </div>
                     """, unsafe_allow_html=True)
                 else:
@@ -743,8 +759,30 @@ elif st.session_state.page == 'dashboard':
                 run_ai_engine("quiz", grade=target_user_grade, content=study_data, sub_name=st.session_state.active_subject)
                 st.rerun()
 
+            # --- 노트북LM 스타일 튜터 AI 추가 ---
+            st.divider()
+            st.markdown("### 💬 튜터 AI에게 질문하기 (학습 자료 기반)")
+            st.markdown("<div style='font-size:13px; color:#7c7b77; margin-bottom:10px;'>현재 과목의 교안 데이터를 읽은 AI에게 모르는 개념을 바로 물어보세요!</div>", unsafe_allow_html=True)
+            
+            for msg in st.session_state.focus_chat_history:
+                if msg["role"] == "user":
+                    st.info(f"👤 나: {msg['content']}")
+                else:
+                    st.success(f"🤖 튜터 AI: {msg['content']}")
+                    
+            with st.form("focus_chat_form", clear_on_submit=True):
+                c_col1, c_col2 = st.columns([4, 1])
+                with c_col1:
+                    user_q = st.text_input("질문 입력", label_visibility="collapsed", placeholder="자료에 대해 궁금한 점을 입력하세요")
+                with c_col2:
+                    submitted = st.form_submit_button("질문 전송", use_container_width=True)
+                
+                if submitted and user_q:
+                    study_data = st.session_state.saved_study_content if st.session_state.get('saved_study_content') else "기본 학업 개념"
+                    run_ai_engine("focus_chat", q=user_q, content=study_data)
+
         # =========================================================================
-        # MODE 3: 시험 모드 (백지 방지 초강력 렌더링)
+        # MODE 3: 시험 모드
         # =========================================================================
         elif st.session_state.current_mode == 'test':
             st.markdown("<div class='notion-header'>📝 REAL-TIME REAL TEST (실전 검증 시험장)</div>", unsafe_allow_html=True)
@@ -773,18 +811,12 @@ elif st.session_state.page == 'dashboard':
                 if st.session_state.current_ai_quiz:
                     quiz_text = st.session_state.current_ai_quiz
                     
-                    # 🔥 [백지 방지 및 완벽 파싱 로직]
-                    # AI가 지시를 따랐다면 문제만 출력!
                     if "===정답구분선===" in quiz_text:
                         quiz_q = quiz_text.split("===정답구분선===")[0]
                         st.markdown(quiz_q.strip())
-                    
-                    # AI가 '===' 기호를 빼먹었을 경우를 대비한 2차 방어선
                     elif "정답구분선" in quiz_text:
                         quiz_q = quiz_text.split("정답구분선")[0]
                         st.markdown(quiz_q.strip())
-                        
-                    # 최후의 수단: 무슨 짓을 해도 실패하면 원본을 통째로 화면에 던져서 백지 방지!
                     else:
                         st.markdown(quiz_text) 
                 else:
@@ -832,4 +864,74 @@ elif st.session_state.page == 'dashboard':
                     st.rerun()
 
         # =========================================================================
-        # MODE 4: 일반
+        # MODE 4: 일반 일차별 결과 리포트 모드
+        # =========================================================================
+        elif st.session_state.current_mode == 'result_daily':
+            st.markdown("<div class='notion-header'>🎯 AI 일차별 검증 리포트</div>", unsafe_allow_html=True)
+            st.success(f"오늘자 {st.session_state.active_subject} (Day {st.session_state.active_day}) 테스트가 무사히 접수되었습니다.")
+            
+            tab_ans, tab_solution = st.tabs(["📥 내가 마킹한 OMR 제출본 확인", "🔍 AI 출제 정답 및 분석 해설지"])
+            with tab_ans:
+                st.write(f"**[1번 답안]** : {st.session_state.user_answers.get('q1', '미기입')}")
+                st.write(f"**[2번 답안]** : {st.session_state.user_answers.get('q2', '미기입')}")
+                st.write(f"**[3번 문항 답변]** : {st.session_state.user_answers.get('q3', '미기입')}")
+            with tab_solution:
+                if st.session_state.current_ai_quiz: 
+                    st.markdown(st.session_state.current_ai_quiz.replace("===정답구분선===", "\n\n--- 🔍 **정답 및 해설** ---\n"))
+            
+            if st.button("🔄 검증 완료 및 대시보드로 돌아가기", type="primary", use_container_width=True):
+                st.session_state.current_mode = 'dashboard'
+                st.session_state.current_ai_quiz = ""
+                st.session_state.user_answers = {}
+                st.rerun()
+
+        # =========================================================================
+        # MODE 5: 최종 학점 산출 성적표 발행 모드
+        # =========================================================================
+        elif st.session_state.current_mode == 'result':
+            st.markdown("<div class='notion-header'>🎓 COURSE COMPLETION OFFICIAL REPORT</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='notion-sub'>축하합니다! <b>{st.session_state.active_subject}</b> 과목의 모든 일차 학습 과정과 최종 평가가 공식 종료되었습니다.</div>", unsafe_allow_html=True)
+            
+            ans_len = len(st.session_state.user_answers.get('q1', '')) + len(st.session_state.user_answers.get('q2', ''))
+            target_user_grade = data['members'][0].get('grade', 'A+') if data['members'] else 'A+'
+            
+            if ans_len > 40:
+                final_gained_grade = target_user_grade
+            else:
+                final_gained_grade = "B+" if target_user_grade == "A+" else "Pass"
+                
+            st.markdown(f"""
+            <div class='report-card'>
+                <div style='font-size: 14px; font-weight: 600; color: #64748b; margin-bottom: 8px;'>학사 이수 인증 성적표 (OFFICIAL GRADE)</div>
+                <div style='font-size: 20px; font-weight: 700; color: #334155; margin-bottom: 4px;'>과목명: {st.session_state.active_subject}</div>
+                <div style='font-size: 13px; color: #94a3b8; margin-bottom: 16px;'>학습 러닝 타임 전체 이수 증명</div>
+                <div style='font-size: 64px; font-weight: 800; color: #10b981; letter-spacing: -2px;'>{final_gained_grade}</div>
+                <div style='font-size: 13px; color: #059669; font-weight: 600; margin-top: 8px;'>🎯 내 목표 학점 레벨 [{target_user_grade}] 대비 최종 도달 성공!</div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            st.write("")
+            tab_final_ans, tab_final_sol = st.tabs(["📥 최종 졸업 고사 제출 답안 확인", "🔍 출제 오답 정고표 분석 해설지"])
+            with tab_final_ans:
+                st.write(f"**[최종 고사 1번 문항]** : {st.session_state.user_answers.get('q1', '미기입')}")
+                st.write(f"**[최종 고사 2번 문항]** : {st.session_state.user_answers.get('q2', '미기입')}")
+                st.write(f"**[최종 고사 3번 문항]** : {st.session_state.user_answers.get('q3', '미기입')}")
+            with tab_final_sol:
+                if st.session_state.current_ai_quiz: 
+                    st.markdown(st.session_state.current_ai_quiz.replace("===정답구분선===", "\n\n--- 🔍 **정답 및 해설** ---\n"))
+                
+            st.divider()
+            if st.button("🔄 최종 성적표 수령 완료 및 대시보드로 복귀", type="primary", use_container_width=True):
+                my_subs_update = data['subjects'].get(st.session_state.my_name, [])
+                for s in my_subs_update:
+                    if s['name'] == st.session_state.active_subject:
+                        s['current_day'] = 1
+                        
+                all_s = data['subjects']
+                all_s[st.session_state.my_name] = my_subs_update
+                supabase.table("team").update({"subjects": all_s}).eq("invite_code", st.session_state.invite_code).execute()
+                
+                st.session_state.current_mode = 'dashboard'
+                st.session_state.current_ai_quiz = ""
+                st.session_state.user_answers = {}
+                st.rerun()
