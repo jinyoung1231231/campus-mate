@@ -645,7 +645,7 @@ elif st.session_state.page == 'dashboard':
 
             elif menu == "👥 팀원 실시간 페이스":
                 st.markdown("<div class='notion-header'>👥 스터디 팀원 실시간 러닝 페이스</div>", unsafe_allow_html=True)
-                st.markdown("<div class='notion-sub'>함께 몰입하는 팀원들의 현재 모드, 학습 상태 및 오늘 누적 공부 시간을 실시간으로 공유합니다.</div>", unsafe_allow_html=True)
+                st.markdown("<div class='notion-sub'>함께 몰입하는 팀원들의 현재 모드, 학습 상태 및 오늘 누적 공부 시간을 실시간 정유합니다.</div>", unsafe_allow_html=True)
                 
                 room_owner = data['members'][0]['name'] if data['members'] else ""
                 
@@ -783,9 +783,8 @@ elif st.session_state.page == 'dashboard':
                 
                 study_data = st.session_state.saved_study_content if st.session_state.get('saved_study_content') else "기본 학업 개념"
                 
-                # 🔥 [개조] 애초에 문제만 뽑아내는 전용 프롬프트 엔진 작동
+                # 🔥 [개조] 애초에 문제만 뽑아내는 전용 프롬프트 엔진 작동 (불필요한 st.rerun() 제거 완료)
                 run_ai_engine("quiz_questions", content=study_data, sub_name=st.session_state.active_subject)
-                st.rerun()
 
             st.divider()
             st.markdown("### 💬 튜터 AI에게 질문하기 (학습 자료 기반)")
