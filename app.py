@@ -224,7 +224,7 @@ session_keys = {
     'user_answers': {},          
     'current_ai_plan': '', 
     'current_ai_quiz': '',
-    'current_ai_quiz_answers': '', # 🔥 정답지를 분리 저장할 신규 변수
+    'current_ai_quiz_answers': '', 
     'current_ai_consult_q': '', 
     'current_ai_consult_a': '', 
     'input_manual_text': '',
@@ -251,7 +251,7 @@ def extract_text(uploaded_file):
     except:
         return ""
 
-# 5. 제미나이 AI 백엔드 오케스트레이션 함수
+# 5. 제미나이 AI 백엔드 오케스트레이션 함수 (API 한도 초과 방지용 극단적 통합 적용)
 def run_ai_engine(prompt_type, **kwargs):
     st.session_state.refresh_lock = True
     with st.spinner("AI가 핵심 데이터를 분석하고 있습니다... 📝"):
@@ -259,14 +259,8 @@ def run_ai_engine(prompt_type, **kwargs):
             today_str = datetime.now().strftime("%Y년 %m월 %d일")
             genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
             
-            valid_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-            if not valid_models:
-                st.error("API 키가 유효하지 않거나 모델 목록을 불러올 수 없습니다.")
-                st.session_state.refresh_lock = False
-                return
-            
-            target_model = next((m for kw in ['flash-latest', '2.5-flash', '2.0-flash', '1.5-flash', 'flash'] for m in valid_models if kw in m and 'vision' not in m and 'lite' not in m), valid_models[0])
-            model_instance = genai.GenerativeModel(target_model)
+            # 🔥 API 호출 낭비를 막기 위해 모델 검색을 생략하고 고정
+            model_instance = genai.GenerativeModel('gemini-1.5-flash')
 
             if prompt_type == "plan":
                 p = f"""오늘 날짜는 {today_str}입니다. 타겟 과목명: [{kwargs['sub_name']}], 목표 성적: {kwargs['grade']}, 남은 기간: {kwargs['days']}일.
@@ -276,7 +270,6 @@ def run_ai_engine(prompt_type, **kwargs):
 반드시 하루의 스케줄은 한 줄로 끝나야 하며, 문장의 시작을 '과목명 Day X:' 형태로만 가공해야 합니다. 추가 문장이나 줄바꿈을 넣지 마세요.
 양식 준수 예시 (과목명이 '로봇공학'인 경우):
 로봇공학 Day 1: 로봇 센서 개론 기초 용어 정리 및 핵심 개념 요약하기
-로봇공학 Day 2: 적외선 센서 데이터 연동 코드 정독하기
 
 학습 자료
 {kwargs['content'][:4000]}"""
@@ -290,7 +283,7 @@ def run_ai_engine(prompt_type, **kwargs):
 
 작성 수칙 - 매우 중요 (규칙 위반 시 시스템 오류 발생)
 1. 반드시 기호나 번호(-, *, 1. 등) 없이 체크리스트 내용만 한 줄에 하나씩 적어주세요.
-2. 제공된 [학습 자료] 안의 핵심 키워드를 포함해서 구체적인 행동(예: '개념 요약하기', '공식 암기하기')으로 지시해주세요.
+2. 제공된 [학습 자료] 안의 핵심 키워드를 포함해서 구체적인 행동으로 지시해주세요.
 
 학습 자료
 {kwargs['content'][:4000]}"""
@@ -298,39 +291,40 @@ def run_ai_engine(prompt_type, **kwargs):
                 st.session_state.focus_detailed_checklist = [l.strip() for l in res.text.split('\n') if l.strip()]
 
             elif prompt_type == "quiz_questions":
-                # 🔥 [개조] 문제만 딱 깔끔하게 3개 뽑아내는 전용 프롬프트
+                # 🔥 [핵심 수정] 2번 요청하던 문제 출제와 정답 출제를 1번의 요청으로 병합하여 한도 초과(429) 방지
                 p = f"""당신은 대학교 교수이자 시험 출제위원입니다. 
-아래 [학습 자료]만을 읽고, 해당 내용을 바탕으로 주관식 및 서술형 퀴즈 3개를 출제하세요. 
-학습 자료에 없는 외부 지식은 절대로 사용해서는 안 됩니다.
+아래 [학습 자료]만을 읽고, 주관식/서술형 퀴즈 3개와 그에 대한 정답을 함께 출제하세요.
 
 작성 수칙 - 매우 중요
-1. 문제 1과 문제 2는 단답형/주관식으로, 문제 3은 서술형으로 출제하세요.
-2. 문제 내용만 작성해야 하며, 절대로 정답이나 해설을 이 답변에 적지 마세요.
-3. 별표(**) 같은 마크다운 효과를 전혀 쓰지 말고 순수 텍스트로만 읽기 좋게 작성하세요.
+1. 문제 1, 2는 단답형, 문제 3은 서술형입니다.
+2. 반드시 아래 [출제 양식]을 그대로 따르고, 문제와 정답 사이에 '===정답선===' 이라는 구분선을 무조건 넣어야 합니다.
+3. 별표(**) 마크다운 효과를 전혀 쓰지 말고 순수 텍스트로만 작성하세요.
 
 [출제 양식]
-문제 1. (단답형/주관식 문제 입력)
+문제 1. (문제 내용)
 
-문제 2. (단답형/주관식 문제 입력)
+문제 2. (문제 내용)
 
-문제 3. (서술형 문제 입력)
+문제 3. (문제 내용)
+
+===정답선===
+[정답 및 해설]
+1번 정답: 
+2번 정답: 
+3번 정답/해설: 
 
 학습 자료
 {kwargs['content'][:4000]}"""
                 res = model_instance.generate_content(p)
-                st.session_state.current_ai_quiz = res.text.strip()
                 
-                # 🔥 [개조] 위에서 출제된 문제를 기반으로 정답지 사후 별도 생성 요청
-                p_ans = f"""위에서 출제된 시험 문항들을 바탕으로, 제공된 [학습 자료]에 근거한 명확한 정답과 해설지를 작성해 주세요.
-가독성을 방해하는 별표(**) 마크다운 효과는 절대 넣지 마세요.
-
-[출제된 시험 문항]
-{st.session_state.current_ai_quiz}
-
-[학습 자료]
-{kwargs['content'][:4000]}"""
-                res_ans = model_instance.generate_content(p_ans)
-                st.session_state.current_ai_quiz_answers = res_ans.text.strip()
+                # 받아온 답변을 구분선으로 쪼개서 문제와 정답 변수에 각각 저장
+                if "===정답선===" in res.text:
+                    quiz_part, ans_part = res.text.split("===정답선===", 1)
+                    st.session_state.current_ai_quiz = quiz_part.strip()
+                    st.session_state.current_ai_quiz_answers = ans_part.strip()
+                else:
+                    st.session_state.current_ai_quiz = res.text.strip()
+                    st.session_state.current_ai_quiz_answers = "AI가 해설을 분리하지 못했습니다. 채점 시 전체 문항을 참고해주세요."
 
             elif prompt_type == "consult":
                 p = f"학업 및 진로 고민 상담 내용입니다: {kwargs['q']}\n학생의 상황에 진심으로 공감하며 향후 진로 설계와 동기부여에 도움이 될 수 있는 구체적인 가이드와 솔루션을 제공해주세요."
@@ -341,7 +335,6 @@ def run_ai_engine(prompt_type, **kwargs):
             elif prompt_type == "focus_chat":
                 p = f"""당신은 현재 학습 중인 과목의 1:1 전담 친절한 AI 튜터입니다. 
 아래 [학습 자료]를 최우선으로 참고하여 학생의 질문에 답변해주세요. 
-만약 자료에 직접적인 정답이 없거나 부족하더라도 절대 모른다고 하지 말고, 학생이 공부에 도움을 받을 수 있도록 당신의 지식을 총동원하여 상세하고 친절하게 설명해주세요.
 
 학습 자료
 {kwargs['content'][:8000]}
@@ -358,7 +351,7 @@ def run_ai_engine(prompt_type, **kwargs):
                 
         except Exception as e:
             st.session_state.refresh_lock = False
-            st.error(f"AI 통신 및 데이터 연동 중 오류 발생: {e}")
+            st.error(f"AI 통신 중 오류 발생: {e}")
 
 # 6. 사용자 인증 및 팀 게이트웨이 렌더링
 if st.session_state.page == 'gate':
@@ -417,7 +410,7 @@ elif st.session_state.page == 'dashboard':
         st.session_state.page = 'gate'; st.rerun()
 
     if not st.session_state.refresh_lock:
-        st_autorefresh(interval=1000, limit=999999, key="global_refresh_engine")
+        st_autorefresh(interval=2000, limit=999999, key="global_refresh_engine")
     
     res = supabase.table("team").select("*").eq("invite_code", st.session_state.invite_code).execute()
     data = res.data[0] if res.data else None
@@ -645,7 +638,7 @@ elif st.session_state.page == 'dashboard':
 
             elif menu == "👥 팀원 실시간 페이스":
                 st.markdown("<div class='notion-header'>👥 스터디 팀원 실시간 러닝 페이스</div>", unsafe_allow_html=True)
-                st.markdown("<div class='notion-sub'>함께 몰입하는 팀원들의 현재 모드, 학습 상태 및 오늘 누적 공부 시간을 실시간 정유합니다.</div>", unsafe_allow_html=True)
+                st.markdown("<div class='notion-sub'>함께 몰입하는 팀원들의 현재 모드, 학습 상태 및 오늘 누적 공부 시간을 실시간 공유합니다.</div>", unsafe_allow_html=True)
                 
                 room_owner = data['members'][0]['name'] if data['members'] else ""
                 
@@ -783,7 +776,7 @@ elif st.session_state.page == 'dashboard':
                 
                 study_data = st.session_state.saved_study_content if st.session_state.get('saved_study_content') else "기본 학업 개념"
                 
-                # 🔥 [개조] 애초에 문제만 뽑아내는 전용 프롬프트 엔진 작동 (불필요한 st.rerun() 제거 완료)
+                # 🔥 [핵심 수정 적용] 한도 초과 방지용 통합 프롬프트 호출
                 run_ai_engine("quiz_questions", content=study_data, sub_name=st.session_state.active_subject)
 
             st.divider()
@@ -835,7 +828,7 @@ elif st.session_state.page == 'dashboard':
             with test_col_l:
                 st.markdown("### 📄 AI REAL TEST QUESTION")
                 if st.session_state.current_ai_quiz:
-                    # 🔥 [개조] 꼬일 요소 없이 깨끗하게 저장된 주관식/서술형 시험 문제만 화면에 렌더링
+                    # 문제 부분만 분리되어 깔끔하게 출력됨
                     st.markdown(st.session_state.current_ai_quiz)
                 else:
                     st.info("AI가 학습 자료 분석을 마치고 주관식/서술형 시험지를 전송 중입니다. 잠시만 기다려 주세요... 📝")
@@ -894,7 +887,7 @@ elif st.session_state.page == 'dashboard':
                 st.write(f"[2번 답안] : {st.session_state.user_answers.get('q2', '미기입')}")
                 st.write(f"[3번 문항 답변] : {st.session_state.user_answers.get('q3', '미기입')}")
             with tab_solution:
-                # 🔥 [개조] 분리 보관해둔 깨끗한 해설지만 출력
+                # 1번의 요청으로 함께 받아온 해설지가 출력됨
                 if st.session_state.current_ai_quiz_answers: 
                     st.markdown(st.session_state.current_ai_quiz_answers)
             
@@ -906,13 +899,12 @@ elif st.session_state.page == 'dashboard':
                 st.rerun()
 
         # =========================================================================
-        # MODE 5: 최종 완료 리포트 모드 (목표학점 제거 버전)
+        # MODE 5: 최종 완료 리포트 모드
         # =========================================================================
         elif st.session_state.current_mode == 'result':
             st.markdown("<div class='notion-header'>🎓 COURSE COMPLETION OFFICIAL REPORT</div>", unsafe_allow_html=True)
             st.markdown(f"<div class='notion-sub'>축하합니다! {st.session_state.active_subject} 과목의 모든 일차 학습 과정과 최종 평가가 공식 종료되었습니다.</div>", unsafe_allow_html=True)
             
-            # 🔥 [수정] 목표학점 및 스코어 연동 라벨을 완전히 걷어내고 순수 이수 리포트 구조로 변경
             st.markdown(f"""
             <div class='report-card'>
                 <div style='font-size: 14px; font-weight: 600; color: #64748b; margin-bottom: 8px;'>학사 이수 인증 성적표 (OFFICIAL CERTIFICATE)</div>
