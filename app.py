@@ -251,7 +251,7 @@ def extract_text(uploaded_file):
     except:
         return ""
 
-# 5. 제미나이 AI 백엔드 오케스트레이션 함수 (API 한도 초과 방지용 극단적 통합 적용)
+# 5. 제미나이 AI 백엔드 오케스트레이션 함수 (404 에러 대응 최신 공식 모델 코드 반영)
 def run_ai_engine(prompt_type, **kwargs):
     st.session_state.refresh_lock = True
     with st.spinner("AI가 핵심 데이터를 분석하고 있습니다... 📝"):
@@ -259,8 +259,8 @@ def run_ai_engine(prompt_type, **kwargs):
             today_str = datetime.now().strftime("%Y년 %m월 %d일")
             genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
             
-            # 🔥 API 호출 낭비를 막기 위해 모델 검색을 생략하고 고정
-            model_instance = genai.GenerativeModel('gemini-1.5-flash')
+            # 🔥 [404 에러 해결 핵심] 버전을 타지 않는 안정적인 최신 표준 주소로 변경 지정
+            model_instance = genai.GenerativeModel('gemini-1.5-flash-latest')
 
             if prompt_type == "plan":
                 p = f"""오늘 날짜는 {today_str}입니다. 타겟 과목명: [{kwargs['sub_name']}], 목표 성적: {kwargs['grade']}, 남은 기간: {kwargs['days']}일.
@@ -291,7 +291,6 @@ def run_ai_engine(prompt_type, **kwargs):
                 st.session_state.focus_detailed_checklist = [l.strip() for l in res.text.split('\n') if l.strip()]
 
             elif prompt_type == "quiz_questions":
-                # 🔥 [핵심 수정] 2번 요청하던 문제 출제와 정답 출제를 1번의 요청으로 병합하여 한도 초과(429) 방지
                 p = f"""당신은 대학교 교수이자 시험 출제위원입니다. 
 아래 [학습 자료]만을 읽고, 주관식/서술형 퀴즈 3개와 그에 대한 정답을 함께 출제하세요.
 
@@ -317,7 +316,6 @@ def run_ai_engine(prompt_type, **kwargs):
 {kwargs['content'][:4000]}"""
                 res = model_instance.generate_content(p)
                 
-                # 받아온 답변을 구분선으로 쪼개서 문제와 정답 변수에 각각 저장
                 if "===정답선===" in res.text:
                     quiz_part, ans_part = res.text.split("===정답선===", 1)
                     st.session_state.current_ai_quiz = quiz_part.strip()
@@ -776,7 +774,7 @@ elif st.session_state.page == 'dashboard':
                 
                 study_data = st.session_state.saved_study_content if st.session_state.get('saved_study_content') else "기본 학업 개념"
                 
-                # 🔥 [핵심 수정 적용] 한도 초과 방지용 통합 프롬프트 호출
+                # 1번의 통합 구조로 변경된 엔진 호출
                 run_ai_engine("quiz_questions", content=study_data, sub_name=st.session_state.active_subject)
 
             st.divider()
@@ -828,7 +826,6 @@ elif st.session_state.page == 'dashboard':
             with test_col_l:
                 st.markdown("### 📄 AI REAL TEST QUESTION")
                 if st.session_state.current_ai_quiz:
-                    # 문제 부분만 분리되어 깔끔하게 출력됨
                     st.markdown(st.session_state.current_ai_quiz)
                 else:
                     st.info("AI가 학습 자료 분석을 마치고 주관식/서술형 시험지를 전송 중입니다. 잠시만 기다려 주세요... 📝")
@@ -887,7 +884,6 @@ elif st.session_state.page == 'dashboard':
                 st.write(f"[2번 답안] : {st.session_state.user_answers.get('q2', '미기입')}")
                 st.write(f"[3번 문항 답변] : {st.session_state.user_answers.get('q3', '미기입')}")
             with tab_solution:
-                # 1번의 요청으로 함께 받아온 해설지가 출력됨
                 if st.session_state.current_ai_quiz_answers: 
                     st.markdown(st.session_state.current_ai_quiz_answers)
             
