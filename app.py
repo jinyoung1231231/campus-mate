@@ -251,7 +251,7 @@ def extract_text(uploaded_file):
     except:
         return ""
 
-# 5. 제미나이 AI 백엔드 (자동 탐색 로직 적용)
+# 5. 제미나이 AI 백엔드 다중 모델 탐색 및 오류 원천 방어 오케스트레이션
 def run_ai_engine(prompt_type, **kwargs):
     st.session_state["refresh_lock"] = True
     with st.spinner("AI가 핵심 데이터를 분석하고 있습니다... 📝"):
@@ -259,27 +259,30 @@ def run_ai_engine(prompt_type, **kwargs):
             today_str = datetime.now().strftime("%Y년 %m월 %d일")
             genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
             
-            # API 키가 접근 가능한 모델을 서버에서 직접 조회하여 404 에러를 원천 차단하는 로직
             def get_ai_response(prompt_text):
-                available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+                candidate_models = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-1.0-pro']
+                last_exception = None
+                for model_name in candidate_models:
+                    try:
+                        return genai.GenerativeModel(model_name).generate_content(prompt_text)
+                    except Exception as e:
+                        last_exception = e
+                        continue
                 
-                if not available_models:
-                    raise Exception("현재 API 키로 사용할 수 있는 생성형 AI 모델이 구글 서버에 없습니다. API 키 설정이나 권한을 확인해주세요.")
-                
-                # 우선순위: 1.5 Flash -> 1.5 Pro -> 일반 Pro -> 사용 가능한 첫 번째 모델
-                target_model_name = None
-                for pref in ['models/gemini-1.5-flash', 'models/gemini-1.5-pro', 'models/gemini-pro']:
-                    if pref in available_models:
-                        target_model_name = pref
-                        break
-                        
-                if not target_model_name:
-                    target_model_name = available_models[0] # 우선순위 모델이 없으면 허용된 아무 모델이나 사용
+                try:
+                    available_models = [m.name.replace('models/', '') for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+                    if available_models:
+                        return genai.GenerativeModel(available_models[0]).generate_content(prompt_text)
+                except Exception as e2:
+                    raise Exception(f"동적 탐색 실패({e2}). 기존 에러: {last_exception}")
                     
-                # 'models/' 접두사를 제거하고 모델 인스턴스 생성
-                clean_model_name = target_model_name.replace('models/', '')
-                model = genai.GenerativeModel(clean_model_name)
-                return model.generate_content(prompt_text)
+                raise Exception(f"사용 가능한 모든 제미나이 모델이 차단되었거나 없습니다. 상세: {last_exception}")
+
+            def extract_text_safely(response):
+                try:
+                    return response.text
+                except Exception:
+                    return "⚠️ AI 안전성 필터링으로 인해 답변 생성이 차단되었습니다. 민감한 단어가 포함되어 있는지 확인해주세요."
 
             if prompt_type == "plan":
                 p = f"""오늘 날짜는 {today_str}입니다. 타겟 과목명: [{kwargs['sub_name']}], 목표 성적: {kwargs['grade']}, 남은 기간: {kwargs['days']}일.
@@ -293,7 +296,8 @@ def run_ai_engine(prompt_type, **kwargs):
 학습 자료
 {kwargs['content'][:4000]}"""
                 res = get_ai_response(p)
-                st.session_state["current_ai_plan"] = st.session_state.get("current_ai_plan", "") + "\n" + res.text
+                safe_text = extract_text_safely(res)
+                st.session_state["current_ai_plan"] = st.session_state.get("current_ai_plan", "") + "\n" + safe_text
                 st.session_state["current_ai_quiz"] = "" 
 
             elif prompt_type == "checklist":
@@ -307,8 +311,9 @@ def run_ai_engine(prompt_type, **kwargs):
 학습 자료
 {kwargs['content'][:4000]}"""
                 res = get_ai_response(p)
+                safe_text = extract_text_safely(res)
                 
-                raw_list = res.text.split('\n')
+                raw_list = safe_text.split('\n')
                 cleaned_list = []
                 for l in raw_list:
                     clean_l = l.strip(" -=*1234567890.")
@@ -342,20 +347,22 @@ def run_ai_engine(prompt_type, **kwargs):
 학습 자료
 {kwargs['content'][:4000]}"""
                 res = get_ai_response(p)
+                safe_text = extract_text_safely(res)
                 
-                if "정답선" in res.text:
-                    parts = res.text.split("정답선", 1)
+                if "정답선" in safe_text:
+                    parts = safe_text.split("정답선", 1)
                     st.session_state["current_ai_quiz"] = parts[0].strip("= -\n")
                     st.session_state["current_ai_quiz_answers"] = parts[1].strip("= -\n")
                 else:
-                    st.session_state["current_ai_quiz"] = res.text.strip()
+                    st.session_state["current_ai_quiz"] = safe_text.strip()
                     st.session_state["current_ai_quiz_answers"] = "AI가 해설을 분리하지 못했습니다. 채점 시 전체 문항을 참고해주세요."
 
             elif prompt_type == "consult":
                 p = f"학업 및 진로 고민 상담 내용입니다: {kwargs['q']}\n학생의 상황에 진심으로 공감하며 향후 진로 설계와 동기부여에 도움이 될 수 있는 구체적인 가이드와 솔루션을 제공해주세요."
                 res = get_ai_response(p)
+                safe_text = extract_text_safely(res)
                 st.session_state["current_ai_consult_q"] = kwargs['q']
-                st.session_state["current_ai_consult_a"] = res.text
+                st.session_state["current_ai_consult_a"] = safe_text
                 
             elif prompt_type == "focus_chat":
                 p = f"""당신은 현재 학습 중인 과목의 1:1 전담 친절한 AI 튜터입니다. 
@@ -367,9 +374,10 @@ def run_ai_engine(prompt_type, **kwargs):
 학생의 질문
 {kwargs['q']}"""
                 res = get_ai_response(p)
+                safe_text = extract_text_safely(res)
                 history = st.session_state.get("focus_chat_history", [])
                 history.append({"role": "user", "content": kwargs['q']})
-                history.append({"role": "assistant", "content": res.text})
+                history.append({"role": "assistant", "content": safe_text})
                 st.session_state["focus_chat_history"] = history
             
             gc.collect()
@@ -378,7 +386,16 @@ def run_ai_engine(prompt_type, **kwargs):
                 
         except Exception as e:
             st.session_state["refresh_lock"] = False
-            st.error(f"AI 통신 중 오류 발생: {e}")
+            # 무한 로딩 방지를 위해 각각의 기능별로 오류 메시지를 텍스트에 심어줍니다.
+            if prompt_type == "plan":
+                st.session_state["current_ai_plan"] = f"⚠️ 계획 생성 중 오류 발생: {e}"
+            elif prompt_type == "quiz_questions":
+                st.session_state["current_ai_quiz"] = f"⚠️ 시험지 출제 중 통신 오류가 발생했습니다.\n\n상세 내용: {e}"
+                st.session_state["current_ai_quiz_answers"] = ""
+            elif prompt_type == "consult":
+                st.session_state["current_ai_consult_a"] = f"⚠️ 답변 생성 중 오류 발생: {e}"
+            else:
+                st.error(f"AI 통신 중 오류 발생: {e}")
 
 # 6. 사용자 인증 및 팀 게이트웨이 렌더링
 if st.session_state.get('page') == 'gate':
@@ -865,8 +882,22 @@ elif st.session_state.get('page') == 'dashboard':
                 current_quiz = st.session_state.get('current_ai_quiz', '')
                 if current_quiz:
                     st.markdown(current_quiz)
+                    
+                    # 에러 문구가 포함된 경우 강제 재시도 버튼 노출
+                    if "오류" in current_quiz or "⚠️" in current_quiz:
+                        if st.button("🔄 에러 복구 및 시험지 다시 생성하기", key="retry_err_btn", use_container_width=True):
+                            study_data = st.session_state.get('saved_study_content') or "기본 학업 개념"
+                            active_subject = st.session_state.get('active_subject', '')
+                            run_ai_engine("quiz_questions", content=study_data, sub_name=active_subject)
                 else:
                     st.info("AI가 학습 자료 분석을 마치고 주관식/서술형 시험지를 전송 중입니다. 잠시만 기다려 주세요... 📝")
+                    st.write("")
+                    
+                    # 무한 로딩에 빠졌을 때 탈출할 수 있는 버튼 
+                    if st.button("🔄 전송이 너무 지연되나요? 다시 요청하기", key="retry_empty_btn"):
+                        study_data = st.session_state.get('saved_study_content') or "기본 학업 개념"
+                        active_subject = st.session_state.get('active_subject', '')
+                        run_ai_engine("quiz_questions", content=study_data, sub_name=active_subject)
             
             with test_col_r:
                 st.markdown("""
