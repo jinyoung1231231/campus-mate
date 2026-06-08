@@ -251,7 +251,7 @@ def extract_text(uploaded_file):
     except:
         return ""
 
-# 5. 제미나이 AI 백엔드 오케스트레이션 함수
+# 5. 제미나이 AI 백엔드 오케스트레이션 함수 (최신 2.5 버전 모델 코드 반영)
 def run_ai_engine(prompt_type, **kwargs):
     st.session_state.refresh_lock = True
     with st.spinner("AI가 핵심 데이터를 분석하고 있습니다... 📝"):
@@ -259,8 +259,10 @@ def run_ai_engine(prompt_type, **kwargs):
             today_str = datetime.now().strftime("%Y년 %m월 %d일")
             genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
             
-            # [404 에러 해결 핵심] 버전을 타지 않는 안정적인 최신 표준 주소로 변경 지정
-            model_instance = genai.GenerativeModel('gemini-1.5-flash')
+            # 여기서 모델 이름을 2.5 버전으로 업데이트합니다.
+            model_instance = genai.GenerativeModel('gemini-2.5-flash')
+
+            # ... (이하 기존 코드와 동일)
 
             if prompt_type == "plan":
                 p = f"""오늘 날짜는 {today_str}입니다. 타겟 과목명: [{kwargs['sub_name']}], 목표 성적: {kwargs['grade']}, 남은 기간: {kwargs['days']}일.
