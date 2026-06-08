@@ -167,6 +167,13 @@ st.markdown("""
         padding: 20px;
         border-radius: 0 8px 8px 0;
     }
+    .notion-btn {
+        background-color: #ffffff;
+        border: 1px solid #e3e2e0;
+        padding: 6px 12px;
+        border-radius: 4px;
+        cursor: pointer;
+    }
     .consult-container {
         background-color: #fbfbfa;
         border: 1px solid #e3e2e0;
@@ -251,7 +258,7 @@ def extract_text(uploaded_file):
     except:
         return ""
 
-# 5. 제미나이 AI 백엔드 자동 폴백(Fallback) 오케스트레이션 함수
+# 5. 제미나이 AI 백엔드 다중 모델 탐색 및 자동 우회 오케스트레이션 함수
 def run_ai_engine(prompt_type, **kwargs):
     st.session_state.refresh_lock = True
     with st.spinner("AI가 핵심 데이터를 분석하고 있습니다... 📝"):
@@ -259,14 +266,26 @@ def run_ai_engine(prompt_type, **kwargs):
             today_str = datetime.now().strftime("%Y년 %m월 %d일")
             genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
             
-            # API 라이브러리 버전에 따른 404 에러 방어 로직 적용
+            # 설치된 패키지 버전에 구애받지 않도록 가능한 모든 최신 모델 식별자를 순차 탐색
             def get_ai_response(prompt_text):
-                try:
-                    return genai.GenerativeModel('gemini-1.5-flash').generate_content(prompt_text)
-                except Exception as fallback_err:
-                    if "404" in str(fallback_err) or "not found" in str(fallback_err).lower():
-                        return genai.GenerativeModel('gemini-pro').generate_content(prompt_text)
-                    raise fallback_err
+                candidate_models = [
+                    'gemini-1.5-flash',
+                    'gemini-1.5-flash-latest',
+                    'gemini-1.5-pro',
+                    'gemini-1.5-pro-latest'
+                ]
+                
+                last_exception = None
+                for model_name in candidate_models:
+                    try:
+                        model = genai.GenerativeModel(model_name)
+                        return model.generate_content(prompt_text)
+                    except Exception as e:
+                        last_exception = e
+                        continue
+                
+                # 모든 모델 주소가 거부당했을 경우 최종 예외 처리
+                raise Exception(f"허용 가능한 모든 제미나이 모델 호출에 실패했습니다. 최신 라이브러리 연동 상태를 확인해 주세요. 상세 내역: {last_exception}")
 
             if prompt_type == "plan":
                 p = f"""오늘 날짜는 {today_str}입니다. 타겟 과목명: [{kwargs['sub_name']}], 목표 성적: {kwargs['grade']}, 남은 기간: {kwargs['days']}일.
@@ -933,5 +952,5 @@ elif st.session_state.page == 'dashboard':
                 st.session_state.current_mode = 'dashboard'
                 st.session_state.current_ai_quiz = ""
                 st.session_state.current_ai_quiz_answers = ""
-                st.session_state.user_answers = {}
+                st.user_answers = {}
                 st.rerun()
