@@ -251,7 +251,7 @@ def extract_text(uploaded_file):
     except:
         return ""
 
-# 5. 제미나이 AI 백엔드 다중 모델 탐색 및 오류 원천 방어 오케스트레이션
+# 5. 제미나이 AI 백엔드 오케스트레이션 함수
 def run_ai_engine(prompt_type, **kwargs):
     st.session_state["refresh_lock"] = True
     with st.spinner("AI가 핵심 데이터를 분석하고 있습니다... 📝"):
@@ -282,10 +282,10 @@ def run_ai_engine(prompt_type, **kwargs):
                 try:
                     return response.text
                 except Exception:
-                    return "⚠️ AI 안전성 필터링으로 인해 답변 생성이 차단되었습니다. 민감한 단어가 포함되어 있는지 확인해주세요."
+                    return "⚠️ AI 안전성 필터링으로 인해 답변 생성이 차단되었습니다."
 
             if prompt_type == "plan":
-                p = f"""오늘 날짜는 {today_str}입니다. 타겟 과목명: [{kwargs['sub_name']}], 목표 성적: {kwargs['grade']}, 남은 기간: {kwargs['days']}일.
+                p = f"""오늘 날짜는 {today_str}입니다. 타겟 과목명: [{kwargs.get('sub_name', '학습 과목')}], 목표 성적: {kwargs.get('grade', 'A+')}, 남은 기간: {kwargs.get('days', 7)}일.
 제공된 학습 자료를 바탕으로, 사용자가 매일 공부할 수 있도록 각 일차별 학습 미션을 구분하여 계획표를 짜주세요.
 
 작성 수칙 - 매우 중요
@@ -294,14 +294,14 @@ def run_ai_engine(prompt_type, **kwargs):
 로봇공학 Day 1: 로봇 센서 개론 기초 용어 정리 및 핵심 개념 요약하기
 
 학습 자료
-{kwargs['content'][:4000]}"""
+{kwargs.get('content', '')[:4000]}"""
                 res = get_ai_response(p)
                 safe_text = extract_text_safely(res)
                 st.session_state["current_ai_plan"] = st.session_state.get("current_ai_plan", "") + "\n" + safe_text
                 st.session_state["current_ai_quiz"] = "" 
 
             elif prompt_type == "checklist":
-                p = f"""오늘의 핵심 미션: {kwargs['mission']}
+                p = f"""오늘의 핵심 미션: {kwargs.get('mission', '')}
 위 미션을 완수하기 위해 학생이 차근차근 따라할 수 있는 상세 행동 체크리스트를 3~5개로 쪼개서 만들어주세요.
 
 작성 수칙 - 매우 중요 (규칙 위반 시 시스템 오류 발생)
@@ -309,7 +309,7 @@ def run_ai_engine(prompt_type, **kwargs):
 2. 제공된 [학습 자료] 안의 핵심 키워드를 포함해서 구체적인 행동으로 지시해주세요.
 
 학습 자료
-{kwargs['content'][:4000]}"""
+{kwargs.get('content', '')[:4000]}"""
                 res = get_ai_response(p)
                 safe_text = extract_text_safely(res)
                 
@@ -323,13 +323,16 @@ def run_ai_engine(prompt_type, **kwargs):
                 st.session_state["focus_detailed_checklist"] = cleaned_list
 
             elif prompt_type == "quiz_questions":
+                sub_name = kwargs.get('sub_name', '전공 과목')
                 p = f"""당신은 대학교 교수이자 시험 출제위원입니다. 
-아래 [학습 자료]만을 읽고, 주관식/서술형 퀴즈 3개와 그에 대한 정답을 함께 출제하세요.
+현재 출제해야 할 타겟 과목명은 [{sub_name}] 입니다.
 
 작성 수칙 - 매우 중요
-1. 문제 1, 2는 단답형, 문제 3은 서술형입니다.
-2. 반드시 아래 [출제 양식]을 그대로 따르고, 문제와 정답 사이에 '정답선' 이라는 단어를 무조건 넣어야 합니다.
-3. 마크다운 효과를 전혀 쓰지 말고 순수 텍스트로만 작성하세요.
+1. 아래 [학습 자료]를 최우선으로 기반하여 주관식/서술형 퀴즈 3개와 정답을 출제하세요.
+2. 만약 [학습 자료]가 비어있거나 '기본 학업 개념' 등 내용이 부실하다면, 반드시 [{sub_name}] 과목의 대학 학부 수준 핵심 개념을 묻는 문제로 알아서 대체하여 출제하세요. (엉뚱한 문제를 내면 안 됩니다.)
+3. 문제 1, 2는 단답형, 문제 3은 서술형입니다.
+4. 반드시 아래 [출제 양식]을 그대로 따르고, 문제와 정답 사이에 '정답선' 이라는 단어를 무조건 넣어야 합니다.
+5. 마크다운 효과를 전혀 쓰지 말고 순수 텍스트로만 작성하세요.
 
 [출제 양식]
 문제 1. (문제 내용)
@@ -345,7 +348,7 @@ def run_ai_engine(prompt_type, **kwargs):
 3번 정답/해설: 
 
 학습 자료
-{kwargs['content'][:4000]}"""
+{kwargs.get('content', '')[:4000]}"""
                 res = get_ai_response(p)
                 safe_text = extract_text_safely(res)
                 
@@ -358,10 +361,10 @@ def run_ai_engine(prompt_type, **kwargs):
                     st.session_state["current_ai_quiz_answers"] = "AI가 해설을 분리하지 못했습니다. 채점 시 전체 문항을 참고해주세요."
 
             elif prompt_type == "consult":
-                p = f"학업 및 진로 고민 상담 내용입니다: {kwargs['q']}\n학생의 상황에 진심으로 공감하며 향후 진로 설계와 동기부여에 도움이 될 수 있는 구체적인 가이드와 솔루션을 제공해주세요."
+                p = f"학업 및 진로 고민 상담 내용입니다: {kwargs.get('q', '')}\n학생의 상황에 진심으로 공감하며 향후 진로 설계와 동기부여에 도움이 될 수 있는 구체적인 가이드와 솔루션을 제공해주세요."
                 res = get_ai_response(p)
                 safe_text = extract_text_safely(res)
-                st.session_state["current_ai_consult_q"] = kwargs['q']
+                st.session_state["current_ai_consult_q"] = kwargs.get('q', '')
                 st.session_state["current_ai_consult_a"] = safe_text
                 
             elif prompt_type == "focus_chat":
@@ -369,14 +372,14 @@ def run_ai_engine(prompt_type, **kwargs):
 아래 [학습 자료]를 최우선으로 참고하여 학생의 질문에 답변해주세요. 
 
 학습 자료
-{kwargs['content'][:8000]}
+{kwargs.get('content', '')[:8000]}
 
 학생의 질문
-{kwargs['q']}"""
+{kwargs.get('q', '')}"""
                 res = get_ai_response(p)
                 safe_text = extract_text_safely(res)
                 history = st.session_state.get("focus_chat_history", [])
-                history.append({"role": "user", "content": kwargs['q']})
+                history.append({"role": "user", "content": kwargs.get('q', '')})
                 history.append({"role": "assistant", "content": safe_text})
                 st.session_state["focus_chat_history"] = history
             
@@ -386,11 +389,10 @@ def run_ai_engine(prompt_type, **kwargs):
                 
         except Exception as e:
             st.session_state["refresh_lock"] = False
-            # 무한 로딩 방지를 위해 각각의 기능별로 오류 메시지를 텍스트에 심어줍니다.
             if prompt_type == "plan":
                 st.session_state["current_ai_plan"] = f"⚠️ 계획 생성 중 오류 발생: {e}"
             elif prompt_type == "quiz_questions":
-                st.session_state["current_ai_quiz"] = f"⚠️ 시험지 출제 중 통신 오류가 발생했습니다.\n\n상세 내용: {e}"
+                st.session_state["current_ai_quiz"] = f"⚠️ 시험지 출제 중 오류 발생: {e}"
                 st.session_state["current_ai_quiz_answers"] = ""
             elif prompt_type == "consult":
                 st.session_state["current_ai_consult_a"] = f"⚠️ 답변 생성 중 오류 발생: {e}"
@@ -883,7 +885,6 @@ elif st.session_state.get('page') == 'dashboard':
                 if current_quiz:
                     st.markdown(current_quiz)
                     
-                    # 에러 문구가 포함된 경우 강제 재시도 버튼 노출
                     if "오류" in current_quiz or "⚠️" in current_quiz:
                         if st.button("🔄 에러 복구 및 시험지 다시 생성하기", key="retry_err_btn", use_container_width=True):
                             study_data = st.session_state.get('saved_study_content') or "기본 학업 개념"
@@ -893,7 +894,6 @@ elif st.session_state.get('page') == 'dashboard':
                     st.info("AI가 학습 자료 분석을 마치고 주관식/서술형 시험지를 전송 중입니다. 잠시만 기다려 주세요... 📝")
                     st.write("")
                     
-                    # 무한 로딩에 빠졌을 때 탈출할 수 있는 버튼 
                     if st.button("🔄 전송이 너무 지연되나요? 다시 요청하기", key="retry_empty_btn"):
                         study_data = st.session_state.get('saved_study_content') or "기본 학업 개념"
                         active_subject = st.session_state.get('active_subject', '')
