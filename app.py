@@ -251,7 +251,7 @@ def extract_text(uploaded_file):
     except:
         return ""
 
-# 5. 제미나이 AI 백엔드 오케스트레이션 함수
+# 5. 제미나이 AI 백엔드 자동 폴백(Fallback) 오케스트레이션 함수
 def run_ai_engine(prompt_type, **kwargs):
     st.session_state.refresh_lock = True
     with st.spinner("AI가 핵심 데이터를 분석하고 있습니다... 📝"):
@@ -259,8 +259,14 @@ def run_ai_engine(prompt_type, **kwargs):
             today_str = datetime.now().strftime("%Y년 %m월 %d일")
             genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
             
-            # 최신 공식 모델
-            model_instance = genai.GenerativeModel('gemini-1.5-flash')
+            # API 라이브러리 버전에 따른 404 에러 방어 로직 적용
+            def get_ai_response(prompt_text):
+                try:
+                    return genai.GenerativeModel('gemini-1.5-flash').generate_content(prompt_text)
+                except Exception as fallback_err:
+                    if "404" in str(fallback_err) or "not found" in str(fallback_err).lower():
+                        return genai.GenerativeModel('gemini-pro').generate_content(prompt_text)
+                    raise fallback_err
 
             if prompt_type == "plan":
                 p = f"""오늘 날짜는 {today_str}입니다. 타겟 과목명: [{kwargs['sub_name']}], 목표 성적: {kwargs['grade']}, 남은 기간: {kwargs['days']}일.
@@ -273,7 +279,7 @@ def run_ai_engine(prompt_type, **kwargs):
 
 학습 자료
 {kwargs['content'][:4000]}"""
-                res = model_instance.generate_content(p)
+                res = get_ai_response(p)
                 st.session_state.current_ai_plan = st.session_state.current_ai_plan + "\n" + res.text
                 st.session_state.current_ai_quiz = "" 
 
@@ -287,9 +293,8 @@ def run_ai_engine(prompt_type, **kwargs):
 
 학습 자료
 {kwargs['content'][:4000]}"""
-                res = model_instance.generate_content(p)
+                res = get_ai_response(p)
                 
-                # 강력한 파싱 로직 적용
                 raw_list = res.text.split('\n')
                 cleaned_list = []
                 for l in raw_list:
@@ -306,7 +311,7 @@ def run_ai_engine(prompt_type, **kwargs):
 작성 수칙 - 매우 중요
 1. 문제 1, 2는 단답형, 문제 3은 서술형입니다.
 2. 반드시 아래 [출제 양식]을 그대로 따르고, 문제와 정답 사이에 '정답선' 이라는 단어를 무조건 넣어야 합니다.
-3. 별표 마크다운 효과를 전혀 쓰지 말고 순수 텍스트로만 작성하세요.
+3. 마크다운 효과를 전혀 쓰지 말고 순수 텍스트로만 작성하세요.
 
 [출제 양식]
 문제 1. (문제 내용)
@@ -323,9 +328,8 @@ def run_ai_engine(prompt_type, **kwargs):
 
 학습 자료
 {kwargs['content'][:4000]}"""
-                res = model_instance.generate_content(p)
+                res = get_ai_response(p)
                 
-                # 유연한 정답선 분리 로직 적용
                 if "정답선" in res.text:
                     parts = res.text.split("정답선", 1)
                     st.session_state.current_ai_quiz = parts[0].strip("= -\n")
@@ -336,7 +340,7 @@ def run_ai_engine(prompt_type, **kwargs):
 
             elif prompt_type == "consult":
                 p = f"학업 및 진로 고민 상담 내용입니다: {kwargs['q']}\n학생의 상황에 진심으로 공감하며 향후 진로 설계와 동기부여에 도움이 될 수 있는 구체적인 가이드와 솔루션을 제공해주세요."
-                res = model_instance.generate_content(p)
+                res = get_ai_response(p)
                 st.session_state.current_ai_consult_q = kwargs['q']
                 st.session_state.current_ai_consult_a = res.text
                 
@@ -349,7 +353,7 @@ def run_ai_engine(prompt_type, **kwargs):
 
 학생의 질문
 {kwargs['q']}"""
-                res = model_instance.generate_content(p)
+                res = get_ai_response(p)
                 st.session_state.focus_chat_history.append({"role": "user", "content": kwargs['q']})
                 st.session_state.focus_chat_history.append({"role": "assistant", "content": res.text})
             
@@ -417,7 +421,6 @@ elif st.session_state.page == 'dashboard':
     if not st.session_state.invite_code: 
         st.session_state.page = 'gate'; st.rerun()
 
-    # 리프레시 락이 없고, 대시보드 모드일 때만 자동 새로고침 진행 (주기 10초로 연장)
     if not st.session_state.refresh_lock:
         st_autorefresh(interval=10000, limit=999999, key="global_refresh_engine")
     
@@ -436,7 +439,7 @@ elif st.session_state.page == 'dashboard':
         if st.session_state.current_mode in ['dashboard', 'result']:
             menu = st.sidebar.radio("내비게이션", [" 내 학습 보드 (메인)", "👥 팀원 실시간 페이스", " 공유 게시판", " AI 진로 및 학업 상담"])
         else:
-            st.sidebar.warning("⚠️ 현재 공부/시험이 진행 중입니다. 메뉴 이동이 제한됩니다.")
+            st.sidebar.warning("현재 공부/시험이 진행 중입니다. 메뉴 이동이 제한됩니다.")
             menu = " 내 학습 보드 (메인)"
             
         if st.sidebar.button("🚪 워크스페이스 로그아웃"):
@@ -446,9 +449,6 @@ elif st.session_state.page == 'dashboard':
         with st.sidebar.expander("🎫 워크스페이스 초대코드"):
             st.code(data['invite_code'])
 
-        # =========================================================================
-        # MODE 1: 대시보드 모드
-        # =========================================================================
         if st.session_state.current_mode == 'dashboard':
             
             if menu == " 내 학습 보드 (메인)":
@@ -711,9 +711,6 @@ elif st.session_state.page == 'dashboard':
                     st.write("")
                     st.info("💡 위 입력창에 고민을 작성하고 신청 버튼을 누르시면, AI 멘토가 분석한 1:1 맞춤 피드백 보고서가 바로 이 자리에 출력됩니다.")
 
-        # =========================================================================
-        # MODE 2: 몰입 모드 (공부 화면)
-        # =========================================================================
         elif st.session_state.current_mode == 'focus':
             st.markdown(f"<div class='notion-header'>⚡ IMMERSION FOCUS MODE</div>", unsafe_allow_html=True)
             
@@ -808,9 +805,6 @@ elif st.session_state.page == 'dashboard':
                     study_data = st.session_state.saved_study_content if st.session_state.get('saved_study_content') else "기본 학업 개념"
                     run_ai_engine("focus_chat", q=user_q, content=study_data)
 
-        # =========================================================================
-        # MODE 3: 시험 모드 (완전 격리 출제 화면)
-        # =========================================================================
         elif st.session_state.current_mode == 'test':
             st.markdown("<div class='notion-header'>📝 REAL-TIME REAL TEST (실전 검증 시험장)</div>", unsafe_allow_html=True)
             
@@ -881,9 +875,6 @@ elif st.session_state.page == 'dashboard':
                         st.session_state.current_mode = 'result_daily'
                     st.rerun()
 
-        # =========================================================================
-        # MODE 4: 일반 일차별 결과 리포트 모드
-        # =========================================================================
         elif st.session_state.current_mode == 'result_daily':
             st.markdown("<div class='notion-header'>🎯 AI 일차별 검증 리포트</div>", unsafe_allow_html=True)
             st.success(f"오늘자 {st.session_state.active_subject} (Day {st.session_state.active_day}) 테스트가 무사히 접수되었습니다.")
@@ -904,9 +895,6 @@ elif st.session_state.page == 'dashboard':
                 st.user_answers = {}
                 st.rerun()
 
-        # =========================================================================
-        # MODE 5: 최종 완료 리포트 모드
-        # =========================================================================
         elif st.session_state.current_mode == 'result':
             st.markdown("<div class='notion-header'>🎓 COURSE COMPLETION OFFICIAL REPORT</div>", unsafe_allow_html=True)
             st.markdown(f"<div class='notion-sub'>축하합니다! {st.session_state.active_subject} 과목의 모든 일차 학습 과정과 최종 평가가 공식 종료되었습니다.</div>", unsafe_allow_html=True)
