@@ -251,7 +251,7 @@ def extract_text(uploaded_file):
     except:
         return ""
 
-# 5. 제미나이 AI 백엔드 오케스트레이션 함수 (404 에러 대응 최신 공식 모델 코드 반영)
+# 5. 제미나이 AI 백엔드 오케스트레이션 함수
 def run_ai_engine(prompt_type, **kwargs):
     st.session_state.refresh_lock = True
     with st.spinner("AI가 핵심 데이터를 분석하고 있습니다... 📝"):
@@ -259,8 +259,8 @@ def run_ai_engine(prompt_type, **kwargs):
             today_str = datetime.now().strftime("%Y년 %m월 %d일")
             genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
             
-            # 🔥 [404 에러 해결 핵심] 버전을 타지 않는 안정적인 최신 표준 주소로 변경 지정
-            model_instance = genai.GenerativeModel('gemini-1.5-flash-latest')
+            # [404 에러 해결 핵심] 버전을 타지 않는 안정적인 최신 표준 주소로 변경 지정
+            model_instance = genai.GenerativeModel('gemini-1.5-flash')
 
             if prompt_type == "plan":
                 p = f"""오늘 날짜는 {today_str}입니다. 타겟 과목명: [{kwargs['sub_name']}], 목표 성적: {kwargs['grade']}, 남은 기간: {kwargs['days']}일.
@@ -297,7 +297,7 @@ def run_ai_engine(prompt_type, **kwargs):
 작성 수칙 - 매우 중요
 1. 문제 1, 2는 단답형, 문제 3은 서술형입니다.
 2. 반드시 아래 [출제 양식]을 그대로 따르고, 문제와 정답 사이에 '===정답선===' 이라는 구분선을 무조건 넣어야 합니다.
-3. 별표(**) 마크다운 효과를 전혀 쓰지 말고 순수 텍스트로만 작성하세요.
+3. 별표 마크다운 효과를 전혀 쓰지 말고 순수 텍스트로만 작성하세요.
 
 [출제 양식]
 문제 1. (문제 내용)
