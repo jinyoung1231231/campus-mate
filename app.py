@@ -251,16 +251,35 @@ def extract_text(uploaded_file):
     except:
         return ""
 
+# 🔥 4.5. [핵심 404 에러 방어] 사용 가능한 모델명 자동 탐색 및 캐싱 (API 호출 낭비 방지)
+@st.cache_data(ttl=3600)
+def get_valid_model_name(api_key):
+    genai.configure(api_key=api_key)
+    try:
+        # 구글 서버에 현재 API 키로 쓸 수 있는 전체 모델 리스트를 요청
+        valid_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+        
+        # 1.5-flash -> flash -> gemini-pro 순으로 찾아보고 정확한 경로명(예: models/gemini-1.5-flash)을 반환
+        for keyword in ['1.5-flash', 'flash', 'gemini-pro']:
+            for model_name in valid_models:
+                if keyword in model_name:
+                    return model_name
+        return valid_models[0] if valid_models else 'gemini-pro'
+    except Exception as e:
+        return 'gemini-pro' # 최악의 경우 가장 구형인 pro 모델로 자동 후퇴
+
 # 5. 제미나이 AI 백엔드 오케스트레이션 함수
 def run_ai_engine(prompt_type, **kwargs):
     st.session_state.refresh_lock = True
     with st.spinner("AI가 핵심 데이터를 분석하고 있습니다... 📝"):
         try:
             today_str = datetime.now().strftime("%Y년 %m월 %d일")
-            genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+            api_key = st.secrets["GEMINI_API_KEY"]
+            genai.configure(api_key=api_key)
             
-            # 🔥 라이브러리 업데이트 후 가장 안정적으로 인식되는 기본 모델명 사용
-            model_instance = genai.GenerativeModel('gemini-1.5-flash')
+            # 🔥 하드코딩을 버리고, 위에서 구글이 알려준 정확한 모델 경로명을 그대로 사용
+            exact_model_name = get_valid_model_name(api_key)
+            model_instance = genai.GenerativeModel(exact_model_name)
 
             if prompt_type == "plan":
                 p = f"""오늘 날짜는 {today_str}입니다. 타겟 과목명: [{kwargs['sub_name']}], 목표 성적: {kwargs['grade']}, 남은 기간: {kwargs['days']}일.
