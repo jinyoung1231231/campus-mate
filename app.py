@@ -259,7 +259,8 @@ def run_ai_engine(prompt_type, **kwargs):
             today_str = datetime.now().strftime("%Y년 %m월 %d일")
             genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
             
-            model_instance = genai.GenerativeModel('gemini-1.5-flash-latest')
+            # 🔥 라이브러리 업데이트 후 가장 안정적으로 인식되는 기본 모델명 사용
+            model_instance = genai.GenerativeModel('gemini-1.5-flash')
 
             if prompt_type == "plan":
                 p = f"""오늘 날짜는 {today_str}입니다. 타겟 과목명: [{kwargs['sub_name']}], 목표 성적: {kwargs['grade']}, 남은 기간: {kwargs['days']}일.
