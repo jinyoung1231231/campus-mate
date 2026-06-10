@@ -37,6 +37,9 @@ st.markdown("""
         margin-bottom: 20px;
         box-shadow: 0 1px 2px rgba(0,0,0,0.02);
     }
+    .subject-block:hover {
+        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+    }
     .subject-title {
         font-size: 18px;
         font-weight: 700;
@@ -257,19 +260,20 @@ def get_valid_model_name(api_key):
     genai.configure(api_key=api_key)
     try:
         valid_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        
         for keyword in ['1.5-flash', 'flash', 'gemini-pro']:
             for model_name in valid_models:
                 if keyword in model_name:
                     return model_name
         return valid_models[0] if valid_models else 'gemini-pro'
-    except Exception as e:
+    except:
         return 'gemini-pro'
 
-# 5. 제미나이 AI 백엔드 오케스트레이션 함수
+# 5. 제미나이 AI 백엔드 오케스트레이션 함수 (Rerun 가로채기 버그 전면 해결)
 def run_ai_engine(prompt_type, **kwargs):
     st.session_state.refresh_lock = True
-    with st.spinner("AI가 핵심 데이터를 분석하고 있습니다..."):
+    should_rerun = False
+    
+    with st.spinner("AI가 핵심 데이터를 분석하고 있습니다... 📝"):
         try:
             today_str = datetime.now().strftime("%Y년 %m월 %d일")
             api_key = st.secrets["GEMINI_API_KEY"]
@@ -307,11 +311,12 @@ def run_ai_engine(prompt_type, **kwargs):
                 st.session_state.focus_detailed_checklist = [l.strip() for l in res.text.split('\n') if l.strip()]
 
             elif prompt_type == "quiz_questions":
-                strict_config = genai.types.GenerationConfig(
-                    temperature=0.0,
-                    top_k=1,
-                    top_p=0.1
-                )
+                # 호환성 에러 방지를 위해 딕셔너리 구조로 안전하게 적용
+                config = {
+                    "temperature": 0.0,
+                    "top_k": 1,
+                    "top_p": 0.1
+                }
                 
                 p = f"""[최고 수준의 엄격한 보안 지시사항]
 당신은 제공된 [학습 자료] 외부의 지식은 전혀 알지 못하는 완벽한 백지 상태의 시스템입니다.
@@ -349,7 +354,7 @@ def run_ai_engine(prompt_type, **kwargs):
 [학습 자료]
 {kwargs['content'][:4000]}"""
                 
-                res = model_instance.generate_content(p, generation_config=strict_config)
+                res = model_instance.generate_content(p, generation_config=config)
                 
                 if "===정답선===" in res.text:
                     quiz_part, ans_part = res.text.split("===정답선===", 1)
@@ -380,33 +385,41 @@ def run_ai_engine(prompt_type, **kwargs):
             
             gc.collect()
             st.session_state.refresh_lock = False
-            st.rerun()
-                
+            should_rerun = True # 정상 성공 시 플래그 켜기
+            
         except Exception as e:
             st.session_state.refresh_lock = False
             st.error(f"AI 통신 중 오류 발생: {e}")
 
-# 6. 사용자 인증 및 팀 게이트웨이 렌더링
+    # 🔥 try-except 구역 바깥에서 안전하게 스트림릿 재실행 수행 (가장 중요)
+    if should_rerun:
+        st.rerun()
+
+# 6. 사용자 인증 및 팀 게이트웨이 렌더링 (Rerun 가로채기 제어 완료)
 if st.session_state.page == 'gate':
     st.title("Check-Mate")
-    
     un = st.text_input("사용자 닉네임 입력 (로그인)")
     
     if un:
+        my_teams = []
+        db_error = False
         try:
             all_teams = supabase.table("team").select("*").execute().data
             my_teams = [t for t in all_teams if any(m['name'] == un for m in t['members'])]
-            
-            if my_teams:
-                st.write(" 내 스터디 팀 목록")
-                for t in my_teams:
-                    if st.button(f"🏠 {t['team_name']} 입장하기", key=f"t_{t['invite_code']}"):
-                        st.session_state.update({"invite_code": t['invite_code'], "my_name": un, "page": "dashboard"})
-                        st.rerun()
-            else:
-                st.info("가입된 스터디 팀이 없습니다. 아래에서 팀을 생성하거나 초대 코드를 입력해 동시 접속하세요.")
         except:
+            db_error = True
+            
+        if db_error:
             st.warning("데이터베이스 연결 상태를 점검 중입니다...")
+            
+        if my_teams:
+            st.write(" 내 스터디 팀 목록")
+            for t in my_teams:
+                if st.button(f"🏠 {t['team_name']} 입장하기", key=f"t_{t['invite_code']}"):
+                    st.session_state.update({"invite_code": t['invite_code'], "my_name": un, "page": "dashboard"})
+                    st.rerun()
+        elif not db_error:
+            st.info("가입된 스터디 팀이 없습니다. 아래에서 팀을 생성하거나 초대 코드를 입력해 동시 접속하세요.")
 
         st.divider()
         c1, c2 = st.columns(2)
@@ -416,26 +429,32 @@ if st.session_state.page == 'gate':
             if st.button("신규 워크스페이스 생성"):
                 if tn and un:
                     code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
-                    supabase.table("team").insert({
-                        "invite_code": code, "team_name": tn,
-                        "members": [{"name": un, "status": "대기", "grade": "-", "days": "-", "total_time": 0}],
-                        "subjects": {un: []}, "posts": []
-                    }).execute()
-                    st.session_state.update({"invite_code": code, "my_name": un, "page": "dashboard"})
-                    st.rerun()
+                    try:
+                        supabase.table("team").insert({
+                            "invite_code": code, "team_name": tn,
+                            "members": [{"name": un, "status": "대기", "grade": "-", "days": "-", "total_time": 0}],
+                            "subjects": {un: []}, "posts": []
+                        }).execute()
+                        st.session_state.update({"invite_code": code, "my_name": un, "page": "dashboard"})
+                        st.rerun()
+                    except:
+                        st.error("데이터 저장에 실패했습니다.")
         with c2:
             st.subheader(" 기존 팀 워크스페이스 참여")
             ci = st.text_input("발급받은 초대 코드 입력")
             if st.button("공유 워크스페이스 입장"):
-                res = supabase.table("team").select("*").eq("invite_code", ci).execute()
-                if res.data:
-                    d = res.data[0]; ml = d['members']; sl = d.get('subjects', {}) or {}
-                    if not any(m['name'] == un for m in ml):
-                        ml.append({"name": un, "status": "대기", "grade": "-", "days": "-", "total_time": 0})
-                        sl[un] = []
-                        supabase.table("team").update({"members": ml, "subjects": sl}).eq("invite_code", ci).execute()
-                    st.session_state.update({"invite_code": ci, "my_name": un, "page": "dashboard"})
-                    st.rerun()
+                try:
+                    res = supabase.table("team").select("*").eq("invite_code", ci).execute()
+                    if res.data:
+                        d = res.data[0]; ml = d['members']; sl = d.get('subjects', {}) or {}
+                        if not any(m['name'] == un for m in ml):
+                            ml.append({"name": un, "status": "대기", "grade": "-", "days": "-", "total_time": 0})
+                            sl[un] = []
+                            supabase.table("team").update({"members": ml, "subjects": sl}).eq("invite_code", ci).execute()
+                        st.session_state.update({"invite_code": ci, "my_name": un, "page": "dashboard"})
+                        st.rerun()
+                except:
+                    st.error("초대 코드를 인증할 수 없습니다.")
 
 # 7. 핵심 메인 워크스페이스 렌더링 
 elif st.session_state.page == 'dashboard':
