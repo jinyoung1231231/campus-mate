@@ -251,33 +251,30 @@ def extract_text(uploaded_file):
     except:
         return ""
 
-# 🔥 4.5. [핵심 404 에러 방어] 사용 가능한 모델명 자동 탐색 및 캐싱 (API 호출 낭비 방지)
+# 사용 가능한 모델명 자동 탐색 및 캐싱
 @st.cache_data(ttl=3600)
 def get_valid_model_name(api_key):
     genai.configure(api_key=api_key)
     try:
-        # 구글 서버에 현재 API 키로 쓸 수 있는 전체 모델 리스트를 요청
         valid_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
         
-        # 1.5-flash -> flash -> gemini-pro 순으로 찾아보고 정확한 경로명(예: models/gemini-1.5-flash)을 반환
         for keyword in ['1.5-flash', 'flash', 'gemini-pro']:
             for model_name in valid_models:
                 if keyword in model_name:
                     return model_name
         return valid_models[0] if valid_models else 'gemini-pro'
     except Exception as e:
-        return 'gemini-pro' # 최악의 경우 가장 구형인 pro 모델로 자동 후퇴
+        return 'gemini-pro'
 
 # 5. 제미나이 AI 백엔드 오케스트레이션 함수
 def run_ai_engine(prompt_type, **kwargs):
     st.session_state.refresh_lock = True
-    with st.spinner("AI가 핵심 데이터를 분석하고 있습니다... 📝"):
+    with st.spinner("AI가 핵심 데이터를 분석하고 있습니다..."):
         try:
             today_str = datetime.now().strftime("%Y년 %m월 %d일")
             api_key = st.secrets["GEMINI_API_KEY"]
             genai.configure(api_key=api_key)
             
-            # 🔥 하드코딩을 버리고, 위에서 구글이 알려준 정확한 모델 경로명을 그대로 사용
             exact_model_name = get_valid_model_name(api_key)
             model_instance = genai.GenerativeModel(exact_model_name)
 
@@ -334,7 +331,7 @@ def run_ai_engine(prompt_type, **kwargs):
 3. 만약 제공된 [학습 자료]에 체크리스트와 관련된 내용이 부족하다면, 절대 상상해서 만들지 말고 "학습 자료 내용이 부족하여 문제를 출제할 수 없습니다."라고만 출력하세요.
 4. 문제 1, 2는 단답형, 문제 3은 서술형입니다.
 5. 반드시 아래 [출제 양식]을 그대로 따르고, 문제와 정답 사이에 '===정답선===' 이라는 구분선을 무조건 넣어야 합니다.
-6. 마크다운 효과(*, # 등)를 전혀 쓰지 말고 순수 텍스트로만 작성하세요.
+6. 마크다운 효과를 전혀 쓰지 말고 순수 텍스트로만 작성하세요.
 
 [출제 양식]
 문제 1. (체크리스트에 기반한 단답형 문제)
@@ -844,6 +841,31 @@ elif st.session_state.page == 'dashboard':
         elif st.session_state.current_mode == 'test':
             st.markdown("<div class='notion-header'>📝 REAL-TIME REAL TEST (실전 검증 시험장)</div>", unsafe_allow_html=True)
             
+            if not st.session_state.current_ai_quiz:
+                st.warning("⚠️ 시험지를 불러오는 중입니다. 잠시 기다려 주세요.")
+                if st.button("🔄 시험지 데이터가 안 뜰 때 클릭하세요 (문제 강제 새로고침)"):
+                    study_data = st.session_state.saved_study_content if st.session_state.get('saved_study_content') else "기본 학업 개념"
+                    
+                    target_day_text = ""
+                    if st.session_state.current_ai_plan:
+                        lines = st.session_state.current_ai_plan.split('\n')
+                        for line in lines:
+                            if st.session_state.active_subject in line and ":" in line:
+                                try:
+                                    day_part, mission_part = line.split(":", 1)
+                                    day_num = int(''.join(filter(str.isdigit, day_part)))
+                                    if day_num == st.session_state.active_day:
+                                        target_day_text += mission_part.strip() + "\n"
+                                except:
+                                    pass
+                    if not target_day_text.strip():
+                        target_day_text = "기본 미션 진행"
+                        
+                    today_mission = target_day_text.strip()
+                    today_checklist = "\n".join(st.session_state.focus_detailed_checklist) if st.session_state.focus_detailed_checklist else "체크리스트 없음"
+                    run_ai_engine("quiz_questions", content=study_data, sub_name=st.session_state.active_subject, mission=today_mission, checklist=today_checklist)
+                st.stop()
+
             time_passed = int(time.time() - st.session_state.test_start_time)
             time_remaining = max(st.session_state.test_limit_seconds - time_passed, 0)
             
@@ -865,10 +887,7 @@ elif st.session_state.page == 'dashboard':
             
             with test_col_l:
                 st.markdown("### 📄 AI REAL TEST QUESTION")
-                if st.session_state.current_ai_quiz:
-                    st.markdown(st.session_state.current_ai_quiz)
-                else:
-                    st.info("AI가 학습 자료 분석을 마치고 주관식/서술형 시험지를 전송 중입니다. 잠시만 기다려 주세요... 📝")
+                st.markdown(st.session_state.current_ai_quiz)
             
             with test_col_r:
                 st.markdown("""
